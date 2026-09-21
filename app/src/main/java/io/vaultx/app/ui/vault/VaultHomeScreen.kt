@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -107,6 +108,7 @@ import io.vaultx.app.core.media.VaultImageRef
 import io.vaultx.app.core.vault.MediaKind
 import io.vaultx.app.core.vault.VaultEntry
 import io.vaultx.app.ui.components.EmptyState
+import io.vaultx.app.ui.components.PasswordField
 import io.vaultx.app.ui.components.TransferProgressBar
 import io.vaultx.app.ui.components.formatBytes
 import io.vaultx.app.ui.components.pressScale
@@ -149,6 +151,9 @@ fun VaultHomeScreen(
     var pendingExport by remember { mutableStateOf<Set<String>?>(null) }
     var textPreview by remember { mutableStateOf<VaultEntry?>(null) }
     var infoTarget by remember { mutableStateOf<VaultEntry?>(null) }
+    // .vlt 加密导出:先收密码 → 选保存位置 → 流式写出
+    var vltExportFor by remember { mutableStateOf<VaultEntry?>(null) }
+    var vltPassword by remember { mutableStateOf<String?>(null) }
 
     // 拖拽移动状态:选中态下拖卡片到文件夹格子上
     var dragEntry by remember { mutableStateOf<VaultEntry?>(null) }
@@ -158,13 +163,16 @@ fun VaultHomeScreen(
     var dropTargetId by remember { mutableStateOf<String?>(null) }
     var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
     val folderBounds = remember { mutableStateMapOf<String, Rect>() }
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    var gridBounds by remember { mutableStateOf<Rect?>(null) }
     // 不能落在被拖条目自身/子孙上
     val dragForbidden = remember(selection, index) {
         if (index == null) selection
         else selection + selection.flatMap { index!!.descendantIds(it) }
     }
 
-    val entries = vm.visibleEntries()
+    // 排序结果只在输入变化时重算——拖拽/进度等高频重组不能每帧重排全表
+    val entries = remember(index, folderStack, query, sortBy) { vm.visibleEntries() }
     // 从库设置返回(改名等)时重读 meta
     var metaTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val meta = remember(index, metaTick) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
@@ -201,6 +209,41 @@ fun VaultHomeScreen(
         pendingExport = null
         if (uri != null && ids != null) {
             vm.exportEntries(ids, container.safTransfer.exportSinkFactory(uri))
+        }
+    }
+    // 单文件走"另存为":系统保存框直接带文件名,比先选目录更顺手
+    val exportFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*"),
+    ) { uri ->
+        val ids = pendingExport
+        pendingExport = null
+        if (uri != null && ids != null) {
+            vm.exportEntries(ids, container.safTransfer.documentSinkFactory(uri))
+        }
+    }
+    // .vlt 加密导出位置
+    val vltLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*"),
+    ) { uri ->
+        val entry = vltExportFor
+        val pw = vltPassword
+        vltExportFor = null
+        vltPassword = null
+        if (uri != null && entry != null && pw != null) {
+            context.contentResolver.openOutputStream(uri)?.let { out ->
+                vm.exportAsVlt(entry, pw.toCharArray(), out)
+            }
+        }
+    }
+
+    /** 导出入口:恰好一个文件 → CreateDocument;多选/含文件夹 → 选目录。 */
+    fun launchExport(ids: Set<String>) {
+        pendingExport = ids
+        val single = ids.singleOrNull()?.let { index?.find(it) }
+        if (single != null && !single.isFolder) {
+            exportFileLauncher.launch(single.name)
+        } else {
+            exportLauncher.launch(null)
         }
     }
 
@@ -432,9 +475,33 @@ fun VaultHomeScreen(
                         }
                     }
                 } else {
+                    val density = androidx.compose.ui.platform.LocalDensity.current
+                    // 拖拽悬到网格上下边缘时自动滚动——目标文件夹在屏外也能拖到;
+                    // 滚动后格子 bounds 经 onGloballyPositioned 刷新,落点判定每帧重算
+                    LaunchedEffect(dragEntry != null) {
+                        if (dragEntry == null) return@LaunchedEffect
+                        while (true) {
+                            val b = gridBounds
+                            val tipY = dragOrigin.y + dragOffset.y + dragSize.height / 2f
+                            if (b != null) {
+                                val edge = with(density) { 64.dp.toPx() }
+                                val step = with(density) { 14.dp.toPx() }
+                                when {
+                                    tipY < b.top + edge -> gridState.dispatchRawDelta(-step)
+                                    tipY > b.bottom - edge -> gridState.dispatchRawDelta(step)
+                                }
+                                val tip = dragOrigin + dragOffset + Offset(dragSize.width / 2f, dragSize.height / 2f)
+                                dropTargetId = folderBounds.entries
+                                    .firstOrNull { (id, r) -> id !in dragForbidden && r.contains(tip) }
+                                    ?.key
+                            }
+                            kotlinx.coroutines.delay(16)
+                        }
+                    }
                     LazyVerticalGrid(
+                        state = gridState,
                         columns = GridCells.Adaptive(112.dp),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).onGloballyPositioned { gridBounds = it.boundsInWindow() },
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -532,10 +599,7 @@ fun VaultHomeScreen(
                     IconButton(onClick = { moveDialog = true }) {
                         Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "移动")
                     }
-                    IconButton(onClick = {
-                        pendingExport = selection
-                        exportLauncher.launch(null)
-                    }) {
+                    IconButton(onClick = { launchExport(selection) }) {
                         Icon(Icons.Filled.Output, contentDescription = "导出")
                     }
                     IconButton(onClick = { deleteConfirm = true }) {
@@ -565,11 +629,19 @@ fun VaultHomeScreen(
             DropdownMenuItem(
                 text = { Text("导出") },
                 onClick = {
-                    pendingExport = setOf(entry.id)
-                    exportLauncher.launch(null)
+                    launchExport(setOf(entry.id))
                     overflowFor = null
                 },
             )
+            if (!entry.isFolder && entry.blobId != null) {
+                DropdownMenuItem(
+                    text = { Text("加密导出(.vlt)") },
+                    onClick = {
+                        vltExportFor = entry
+                        overflowFor = null
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("移动到…") },
                 onClick = {
@@ -722,11 +794,51 @@ fun VaultHomeScreen(
         )
     }
 
+    // ---------- .vlt 加密导出(独立密码) ----------
+    vltExportFor?.let { entry ->
+        if (vltPassword == null) {
+            var pw by remember { mutableStateOf("") }
+            var pw2 by remember { mutableStateOf("") }
+            var err by remember { mutableStateOf<String?>(null) }
+            AlertDialog(
+                onDismissRequest = { vltExportFor = null },
+                title = { Text("加密导出「${entry.name}」") },
+                text = {
+                    Column(Modifier.imePadding()) {
+                        Text("为该 .vlt 文件设一个独立密码(与库密码无关);持有该密码的人可在无锁模式下解开。")
+                        Spacer(Modifier.height(8.dp))
+                        PasswordField(pw, { pw = it; err = null }, "导出密码")
+                        Spacer(Modifier.height(4.dp))
+                        PasswordField(pw2, { pw2 = it; err = null }, "确认密码", isError = err != null, supportingText = err)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        when {
+                            pw.length < 4 -> err = "至少 4 位"
+                            pw != pw2 -> err = "两次输入不一致"
+                            else -> {
+                                vltPassword = pw
+                                vltLauncher.launch("${entry.name}.vlt")
+                            }
+                        }
+                    }) { Text("选择保存位置") }
+                },
+                dismissButton = { TextButton(onClick = { vltExportFor = null }) { Text("取消") } },
+            )
+        }
+    }
+
     // ---------- 删除确认 ----------
     if (deleteConfirm) {
+        // 级联:文件夹连子孙一起删,确认框如实显示总数
+        val doomedCount = remember(selection, index) {
+            selection.sumOf { id -> ((index?.descendantIds(id)?.size) ?: 0) + 1 }
+        }
         io.vaultx.app.ui.components.ConfirmDialog(
-            title = "删除 ${selection.size} 项?",
-            text = "选中的文件/文件夹将从加密库中永久删除。",
+            title = "删除 $doomedCount 项?",
+            text = if (doomedCount > selection.size) "文件夹内的全部内容会一并删除。删除后有 8 秒撤销窗口。"
+            else "删除后有 8 秒撤销窗口,可在底部条中恢复。",
             confirmText = "删除",
             danger = true,
             onConfirm = { vm.deleteEntries(selection); deleteConfirm = false },

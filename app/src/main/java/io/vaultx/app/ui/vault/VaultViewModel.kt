@@ -184,6 +184,31 @@ class VaultViewModel(
         _selection.value = visibleEntries().map { it.id }.toSet()
     }
 
+    /**
+     * 单文件加密导出为 `.vlt`(独立于库密码的一次性密码,可安全传给他人)。
+     * 明文只在流里过,不落地;密码数组用完即清零。
+     */
+    fun exportAsVlt(entry: VaultEntry, password: CharArray, output: java.io.OutputStream) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _transfer.value = TransferState(0, 1, "加密导出…")
+            try {
+                val u = unlocked ?: return@launch
+                val blobId = entry.blobId ?: throw IllegalStateException("folder has no blob")
+                output.use { out ->
+                    container.vaultManager.openBlobStream(u, blobId).use { dec ->
+                        io.vaultx.app.core.crypto.PortableCipher.encryptTo(password, dec, out)
+                    }
+                }
+                _notice.value = "已导出 ${entry.name}.vlt"
+            } catch (e: Throwable) {
+                _error.value = "导出失败:${e.message}"
+            } finally {
+                password.fill('\u0000')
+                _transfer.value = null
+            }
+        }
+    }
+
     // ---------------- 导入 ----------------
 
     fun import(sources: List<TransferEngine.ImportSource>) {
@@ -425,21 +450,28 @@ class VaultViewModel(
     }
 
     /** 更新条目为已生成缩略图。 */
+    private val thumbInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     fun ensureThumb(entry: VaultEntry) {
         val blobId = entry.blobId ?: return
-        if (entry.hasThumb || entry.isFolder) return
+        // 去重:重组/快速滚动会重复触发;同 blob 并发 writeThumb 会撞 writeAtomic 的 .tmp
+        if (entry.hasThumb || entry.isFolder || !thumbInFlight.add(blobId)) return
         viewModelScope.launch(Dispatchers.IO) {
-            val u = unlocked ?: return@launch
-            val bytes = container.thumbnailer.generate(u, blobId, entry.kind) ?: return@launch
-            container.vaultManager.writeThumb(u, blobId, bytes)
-            indexMutex.withLock {
-                val u2 = unlocked ?: return@withLock
-                val idx = container.vaultManager.loadIndex(u2)
-                val i = idx.entries.indexOfFirst { it.id == entry.id }
-                if (i >= 0 && !idx.entries[i].hasThumb) {
-                    idx.entries[i] = idx.entries[i].copy(hasThumb = true)
-                    persist(u2, idx)
+            try {
+                val u = unlocked ?: return@launch
+                val bytes = container.thumbnailer.generate(u, blobId, entry.kind) ?: return@launch
+                container.vaultManager.writeThumb(u, blobId, bytes)
+                indexMutex.withLock {
+                    val u2 = unlocked ?: return@withLock
+                    val idx = container.vaultManager.loadIndex(u2)
+                    val i = idx.entries.indexOfFirst { it.id == entry.id }
+                    if (i >= 0 && !idx.entries[i].hasThumb) {
+                        idx.entries[i] = idx.entries[i].copy(hasThumb = true)
+                        persist(u2, idx)
+                    }
                 }
+            } finally {
+                thumbInFlight.remove(blobId)
             }
         }
     }

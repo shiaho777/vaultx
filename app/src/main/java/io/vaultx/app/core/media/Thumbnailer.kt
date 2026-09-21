@@ -68,12 +68,15 @@ private class VaultMediaDataSource(
 ) : MediaDataSource() {
 
     private val channel by lazy { vaultManager.openBlobChannel(unlocked, blobId) }
+    private val lock = Any()
 
-    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
-        channel.position(position)
-        val buf = java.nio.ByteBuffer.wrap(buffer, offset, size)
-        return channel.read(buf)
-    }
+    // MediaDataSource 契约允许并发 readAt:position+read 必须原子,否则定位串扰
+    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int =
+        synchronized(lock) {
+            channel.position(position)
+            val buf = java.nio.ByteBuffer.wrap(buffer, offset, size)
+            channel.read(buf)
+        }
 
     override fun getSize(): Long = channel.size()
 

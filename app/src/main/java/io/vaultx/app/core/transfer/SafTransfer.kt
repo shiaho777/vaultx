@@ -118,6 +118,28 @@ class SafTransfer(private val context: Context) {
     fun exportSinkFactory(treeUri: Uri): TransferEngine.ExportSinkFactory =
         SafExportSinkFactory(context, treeUri)
 
+    /**
+     * 单文件"另存为"目标(ACTION_CREATE_DOCUMENT 返回的 docUri):
+     * 系统已建好文档,只需打开流写入;abort 撤掉本次创建的空文档。
+     */
+    fun documentSinkFactory(docUri: Uri): TransferEngine.ExportSinkFactory =
+        object : TransferEngine.ExportSinkFactory {
+            override fun create(relPath: String, mimeType: String?): TransferEngine.ExportSink =
+                object : TransferEngine.ExportSink {
+                    override val output: OutputStream =
+                        context.contentResolver.openOutputStream(docUri)
+                            ?: throw java.io.IOException("openOutputStream failed: $docUri")
+
+                    override fun commit() {}
+
+                    override fun abort() {
+                        runCatching {
+                            DocumentsContract.deleteDocument(context.contentResolver, docUri)
+                        }
+                    }
+                }
+        }
+
     private class SafExportSinkFactory(
         private val context: Context,
         private val treeUri: Uri,

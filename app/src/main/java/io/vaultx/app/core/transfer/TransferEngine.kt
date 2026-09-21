@@ -181,20 +181,29 @@ class TransferEngine(private val vaultManager: VaultManager) {
 
     /** 同目录内重名消解:"a.jpg" → "a (2).jpg" → "a (3).jpg"。[excludeId] 排除条目自身(改名/移动时)。 */
     internal fun uniqueName(name: String, index: VaultIndex, parentId: String?, excludeId: String? = null): String {
+        // 外部名(SAF 显示名/用户输入)去路径分隔与控制字符——名字会进索引进而拼导出 relPath,
+        // 不拦住 "../" 之类会破坏目录结构语义(甚至制造同名幻影)
+        val clean = sanitizeName(name)
         val taken = index.childrenOf(parentId).asSequence()
             .filter { it.id != excludeId }
             .map { it.name }
             .toHashSet()
-        if (name !in taken) return name
-        val dot = name.lastIndexOf('.')
-        val stem = if (dot > 0) name.substring(0, dot) else name
-        val ext = if (dot > 0) name.substring(dot) else ""
+        if (clean !in taken) return clean
+        val dot = clean.lastIndexOf('.')
+        val stem = if (dot > 0) clean.substring(0, dot) else clean
+        val ext = if (dot > 0) clean.substring(dot) else ""
         var i = 2
         while (true) {
             val candidate = "$stem ($i)$ext"
             if (candidate !in taken) return candidate
             i++
         }
+    }
+
+    internal fun sanitizeName(name: String): String {
+        val stripped = name.map { if (it == '/' || it == '\\' || it < ' ') '_' else it }
+            .joinToString("").trim()
+        return if (stripped.isBlank() || stripped == "." || stripped == "..") "unnamed" else stripped
     }
 
     private fun kindOf(name: String, mime: String?): MediaKind = when {
@@ -293,13 +302,13 @@ class TransferEngine(private val vaultManager: VaultManager) {
 
     /** 导出相对路径:folder/sub/name.ext(目录链从索引回溯)。 */
     private fun relPathOf(entry: VaultEntry, index: VaultIndex): String {
-        val parts = mutableListOf(entry.name)
+        val parts = mutableListOf(sanitizeName(entry.name))
         val seen = hashSetOf(entry.id)
         var cur = entry.parentId
         while (cur != null && cur !in seen) {
             val folder = index.find(cur) ?: break
             seen.add(folder.id)
-            parts.add(0, folder.name)
+            parts.add(0, sanitizeName(folder.name))
             cur = folder.parentId
         }
         return parts.joinToString("/")

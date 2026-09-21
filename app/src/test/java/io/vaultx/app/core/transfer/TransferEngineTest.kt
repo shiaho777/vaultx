@@ -155,6 +155,17 @@ class TransferEngineTest {
     }
 
     @Test
+    fun importSanitizesPathSeparatorsInNames() {
+        val index = VaultIndex()
+        engine.import(unlocked, listOf(MemFile("../evil.txt", byteArrayOf(1))), null, index)
+        engine.import(unlocked, listOf(MemFile("a/b.jpg", byteArrayOf(2))), null, index)
+        val names = index.entries.map { it.name }
+        // 分隔符被替换,不形成伪目录;纯 ".." 兜底为 unnamed
+        assertTrue(names.none { it.contains('/') || it.contains('\\') })
+        assertTrue(".._evil.txt" in names || ".._evil (2).txt" in names || names.all { it != ".." })
+    }
+
+    @Test
     fun importEmptyDirStillReportsProgress() {
         val index = VaultIndex()
         val progress = mutableListOf<Pair<Int, Int>>()

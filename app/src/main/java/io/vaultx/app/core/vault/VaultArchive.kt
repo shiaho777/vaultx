@@ -32,7 +32,8 @@ class VaultArchive(private val vaultManager: VaultManager) {
         val dir = vaultManager.vaultDir(vaultId)
         require(dir.isDirectory) { "vault not found: $vaultId" }
         val files = dir.walkTopDown()
-            .filter { it.isFile && it.name != VaultManager.BIO_WRAP }
+            // bio.wrap 绑定本机 Keystore 不可携带;.tmp 是 writeAtomic 半途残迹
+            .filter { it.isFile && it.name != VaultManager.BIO_WRAP && !it.name.endsWith(".tmp") }
             .sortedBy { it.relativeTo(dir).invariantSeparatorsPath }
             .toList()
         val out = DataOutputStream(output)

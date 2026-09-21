@@ -50,7 +50,7 @@ class SessionManager(private val cacheDir: File) {
 
     /** 导入一个文件进临时空间;重名自动消解。返回最终条目。 */
     fun importFile(name: String, input: InputStream): SessionFile {
-        val finalName = uniqueName(name)
+        val finalName = uniqueName(sanitizeName(name))
         val target = File(sessionDir().apply { mkdirs() }, finalName)
         try {
             target.outputStream().use { out -> input.copyTo(out) }
@@ -65,7 +65,8 @@ class SessionManager(private val cacheDir: File) {
     fun rename(storedName: String, newName: String): SessionFile? {
         val src = file(storedName)
         if (!src.isFile || newName.isBlank()) return null
-        val finalName = if (newName == storedName) storedName else uniqueName(newName)
+        val clean = sanitizeName(newName)
+        val finalName = if (clean == storedName) storedName else uniqueName(clean)
         val dest = File(sessionDir(), finalName)
         if (!src.renameTo(dest)) return null
         return SessionFile(finalName, dest.length(), kindOf(finalName))
@@ -92,7 +93,7 @@ class SessionManager(private val cacheDir: File) {
      */
     fun importVlt(displayName: String, input: InputStream, password: CharArray): SessionFile {
         // 去掉 .vlt 后缀作为展示名
-        val base = displayName.removeSuffix(".vlt")
+        val base = sanitizeName(displayName.removeSuffix(".vlt"))
         val finalName = uniqueName(base)
         val target = File(sessionDir().apply { mkdirs() }, finalName)
         try {
@@ -134,6 +135,10 @@ class SessionManager(private val cacheDir: File) {
         }
         f.deleteRecursively()
     }
+
+    /** 外部提供的名字(SAF 显示名/用户输入)去路径分隔——防 "../" 写出会话目录。 */
+    private fun sanitizeName(name: String): String =
+        name.substringAfterLast('/').substringAfterLast('\\').trim().ifBlank { "unnamed" }
 
     /** "name (2).ext" 消解,与库里同一约定。 */
     private fun uniqueName(name: String): String {
