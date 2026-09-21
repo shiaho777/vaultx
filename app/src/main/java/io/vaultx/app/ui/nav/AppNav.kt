@@ -10,6 +10,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
@@ -60,10 +61,18 @@ fun AppNav(container: AppContainer, modifier: Modifier = Modifier) {
             slideOutHorizontally(tween(280)) { it / 4 } + fadeOut(tween(280))
     }
 
+    val context = LocalContext.current
     NavDisplay(
         backStack = backStack,
         modifier = modifier,
-        onBack = { backStack.removeLastOrNull() },
+        // 栈底再弹会留空栈死屏;根级返回交还系统结束 Activity
+        onBack = {
+            if (backStack.size > 1) {
+                backStack.removeLastOrNull()
+            } else {
+                (context as? android.app.Activity)?.finish()
+            }
+        },
         transitionSpec = enterSpec,
         popTransitionSpec = popSpec,
         predictivePopTransitionSpec = predictivePopSpec,

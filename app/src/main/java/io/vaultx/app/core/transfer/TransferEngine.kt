@@ -255,8 +255,9 @@ class TransferEngine(private val vaultManager: VaultManager) {
                 if (isCancelled()) throw TransferCancelledException(done)
                 onFileStart(entry.name)
                 if (entry.isFolder) {
-                    // 空文件夹也要在导出端出现,否则目录结构丢信息
+                    // 空文件夹也要在导出端出现,否则目录结构丢信息;建目录失败计入失败名
                     runCatching { sinkFactory.ensureDir(relPathOf(entry, index)) }
+                        .onFailure { failed += entry.name }
                     done++
                     throttle.emit(done, total, onProgress)
                     continue

@@ -340,8 +340,9 @@ class VaultViewModel(
             indexMutex.withLock {
                 if (_undoDelete.value !== pd) return@withLock
                 val u = unlocked ?: return@withLock
-                flushPendingDelete(u)
+                // 不能走 flushPendingDelete——它落实的正是这一批;这里要保住 blob 再恢复
                 undoJob?.cancel()
+                _undoDelete.value = null
                 val idx = container.vaultManager.loadIndex(u)
                 // 父链可能同批恢复:先按"批内也算存在"放行,再逐个加回
                 val restoring = pd.entries.map { it.id }.toSet()
@@ -357,7 +358,6 @@ class VaultViewModel(
                     }
                 }
                 persist(u, idx)
-                _undoDelete.value = null
                 val skipped = pd.entries.size - restored
                 _notice.value = if (skipped == 0) "已恢复 $restored 项" else "已恢复 $restored 项,$skipped 项已无法恢复"
             }

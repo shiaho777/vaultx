@@ -329,7 +329,11 @@ fun VaultSettingsScreen(
                 Column(Modifier.imePadding()) {
                     Text("只重包裹密钥,全部文件零重加密", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(pw, { pw = it; err = null }, "新密码")
+                    PasswordField(
+                        pw, { pw = it; err = null }, "新密码",
+                        supportingText = io.vaultx.app.core.crypto.PasswordStrength.label(pw)
+                            .takeIf { it.isNotEmpty() }?.let { "强度:$it" },
+                    )
                     Spacer(Modifier.height(8.dp))
                     PasswordField(pw2, { pw2 = it; err = null }, "确认新密码", isError = err != null, supportingText = err)
                 }
@@ -374,7 +378,11 @@ fun VaultSettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(pw, { pw = it; err = null }, "诱骗密码")
+                    PasswordField(
+                        pw, { pw = it; err = null }, "诱骗密码",
+                        supportingText = io.vaultx.app.core.crypto.PasswordStrength.label(pw)
+                            .takeIf { it.isNotEmpty() }?.let { "强度:$it" },
+                    )
                     Spacer(Modifier.height(8.dp))
                     PasswordField(pw2, { pw2 = it; err = null }, "确认诱骗密码", isError = err != null, supportingText = err)
                 }

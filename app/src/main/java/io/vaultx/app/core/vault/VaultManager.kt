@@ -339,6 +339,13 @@ class VaultManager(private val rootDir: File) {
     fun changePassword(unlocked: UnlockedVault, newPassword: CharArray) {
         require(newPassword.size >= MIN_PASSWORD_LENGTH) { "password too short" }
         try {
+            // 双链共存时新密码不能撞上另一条链:真链永远先命中,
+            // 撞了对方链就悄悄死掉(与 enableDecoy 同一防护,两个方向)
+            if (unlocked.viaDecoy) {
+                require(!tryRealPassword(unlocked.meta, newPassword)) { "诱骗密码不能与真密码相同" }
+            } else if (unlocked.meta.hasDecoy) {
+                require(!tryDecoyPassword(unlocked.meta, newPassword)) { "密码不能与诱骗密码相同" }
+            }
             // 按会话所属链取参数:改真密码用主链参数,改诱骗密码用诱骗链参数
             val params = if (unlocked.viaDecoy) unlocked.meta.kdfDecoyParams else unlocked.meta.kdfParams
             rewrapVmk(unlocked, newPassword, params)
@@ -437,7 +444,13 @@ class VaultManager(private val rootDir: File) {
         val vaultId = unlocked.vaultId
         indexDecoyEncFile(vaultId).delete()
         synchronized(cacheLock) { indexCache.remove(decoyCacheKey(vaultId)) }
-        val newMeta = meta.copy(saltDecoy = null, wrappedVmkDecoy = null)
+        val newMeta = meta.copy(
+            saltDecoy = null,
+            wrappedVmkDecoy = null,
+            kdfDecoyMemoryKiB = 0,
+            kdfDecoyIterations = 0,
+            kdfDecoyParallelism = 0,
+        )
         writeAtomic(metaFile(vaultId), newMeta.toJson().toByteArray(Charsets.UTF_8))
         unlocked.meta = newMeta
     }
@@ -455,6 +468,10 @@ class VaultManager(private val rootDir: File) {
                 VaultIndex.fromJson(
                     String(unlocked.crypto.decryptBlock(f.readBytes(), VaultCrypto.decoyIndexAd(vaultId)), Charsets.UTF_8),
                 )
+            } else if (unlocked.meta.hasDecoy) {
+                // meta 声称有诱骗但索引丢失 = 损坏;静默给空索引会掩盖数据丢失,
+                // 后续 saveIndex 还会把"空"写回去让所有 blob 变孤儿
+                throw IOException("诱骗索引文件缺失(库数据损坏)")
             } else {
                 VaultIndex()
             }
@@ -467,6 +484,7 @@ class VaultManager(private val rootDir: File) {
                     VaultIndex.fromJson(bytes.toString(Charsets.UTF_8))
                 }
                 plain.isFile -> VaultIndex.fromJson(plain.readText())
+                unlocked.meta.indexEncrypted -> throw IOException("加密索引文件缺失(库数据损坏)")
                 else -> VaultIndex()
             }
         }

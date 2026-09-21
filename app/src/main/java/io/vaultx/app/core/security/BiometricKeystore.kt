@@ -44,13 +44,22 @@ class BiometricKeystore {
 
     /**
      * 解锁用的 CryptoObject:decrypt 模式 Cipher 需要活体认证后才可用。
-     * @throws KeyInvalidatedException 密钥已失效(新录指纹等)——调用方应删 bio.wrap 回退密码
+     * @throws KeyInvalidatedException 密钥已失效(新录指纹/生物数据变更)——
+     *   调用方应删 bio.wrap 回退密码;init 期作废与密钥缺失同一出口
      */
     fun cryptoObjectForUnlock(vaultId: String, wrapped: ByteArray): BiometricPrompt.CryptoObject {
         val key = keystoreKey(vaultId) ?: throw KeyInvalidatedException()
         val iv = wrapped.copyOfRange(0, GCM_IV_LENGTH)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        try {
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        } catch (e: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            throw KeyInvalidatedException()
+        } catch (e: java.security.InvalidKeyException) {
+            throw KeyInvalidatedException()
+        } catch (e: java.security.InvalidAlgorithmParameterException) {
+            throw KeyInvalidatedException()
+        }
         return BiometricPrompt.CryptoObject(cipher)
     }
 

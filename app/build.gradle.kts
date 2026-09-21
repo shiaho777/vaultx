@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.media3.common)
+    implementation(libs.exifinterface)
     implementation(libs.coil.compose)
     implementation(libs.coil.core)
     implementation(libs.tink.android)

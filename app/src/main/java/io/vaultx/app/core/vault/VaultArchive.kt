@@ -43,15 +43,30 @@ class VaultArchive(private val vaultManager: VaultManager) {
         files.forEachIndexed { i, f ->
             val rel = f.relativeTo(dir).invariantSeparatorsPath
             val pathBytes = rel.toByteArray(Charsets.UTF_8)
+            // 先哈希再记长度,然后只写声明的 size 字节——若导出中途文件被并发
+            // 追加,copyTo 会写出超界字节让整个归档错位;有界拷贝保证条目边界对齐
             val digest = sha256Of(f)
+            val size = f.length()
             out.writeShort(pathBytes.size)
             out.write(pathBytes)
-            out.writeLong(f.length())
+            out.writeLong(size)
             out.write(digest)
-            f.inputStream().use { it.copyTo(out) }
+            f.inputStream().use { copyExactly(it, out, size) }
             onProgress(i + 1, files.size)
         }
         out.flush()
+    }
+
+    /** 恰好写 [size] 字节;源提前 EOF(并发截断)抛 IOException。 */
+    private fun copyExactly(ins: InputStream, out: OutputStream, size: Long) {
+        val buf = ByteArray(64 * 1024)
+        var remaining = size
+        while (remaining > 0) {
+            val n = ins.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+            if (n < 0) throw IOException("文件在导出中被截断")
+            out.write(buf, 0, n)
+            remaining -= n
+        }
     }
 
     /** 只读清单里的 meta.vault(不必解出全部条目),供导入前展示/验密码。 */
