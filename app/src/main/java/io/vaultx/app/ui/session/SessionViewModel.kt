@@ -113,4 +113,10 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
         container.sessionManager.destroy()
         _files.value = emptyList()
     }
+
+    override fun onCleared() {
+        // 任何退出路径(确认退出/系统返回弹栈/锁定清栈)都即焚——
+        // 不能只靠退出确认对话框,系统 back 不会经过它
+        container.sessionManager.destroy()
+    }
 }
