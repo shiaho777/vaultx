@@ -51,12 +51,13 @@ data class VaultIndex(
         return entries.filter { it.name.contains(q, ignoreCase = true) }
     }
 
-    /** 文件夹的完整子孙条目 id 集(删除/移动时级联用)。 */
+    /** 文件夹的完整子孙条目 id 集(删除/移动时级联用)。父链成环的损坏索引下也保证终止。 */
     fun descendantIds(folderId: String): Set<String> {
         val out = LinkedHashSet<String>()
         var frontier = listOf(folderId)
         while (frontier.isNotEmpty()) {
-            val next = entries.filter { it.parentId in frontier }
+            // 已收录的 id 不再扩展——否则 A→B→A 环会无限扩散
+            val next = entries.filter { it.parentId in frontier && it.id !in out }
             next.forEach { out.add(it.id) }
             frontier = next.map { it.id }
         }

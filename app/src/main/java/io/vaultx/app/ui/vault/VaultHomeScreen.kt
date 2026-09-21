@@ -661,7 +661,7 @@ fun VaultHomeScreen(
                 runCatching {
                     val u = container.session.get(vaultId) ?: return@runCatching null
                     container.vaultManager.openBlobStream(u, entry.blobId!!).use {
-                        String(it.readBytes(), Charsets.UTF_8)
+                        decodeText(it.readBytes())
                     }
                 }.getOrNull()
             }
@@ -739,9 +739,11 @@ private fun folderPathOf(
     index: io.vaultx.app.core.vault.VaultIndex?,
 ): String {
     val parts = mutableListOf(entry.name)
+    val seen = hashSetOf(entry.id)
     var cur = entry.parentId
-    while (cur != null) {
+    while (cur != null && cur !in seen) {
         val p = index?.find(cur) ?: break
+        seen.add(p.id)
         parts.add(0, p.name)
         cur = p.parentId
     }
@@ -754,13 +756,28 @@ private fun parentPathOf(
     index: io.vaultx.app.core.vault.VaultIndex?,
 ): String {
     val parts = mutableListOf<String>()
+    val seen = hashSetOf(entry.id)
     var cur = entry.parentId
-    while (cur != null) {
+    while (cur != null && cur !in seen) {
         val p = index?.find(cur) ?: break
+        seen.add(p.id)
         parts.add(0, p.name)
         cur = p.parentId
     }
     return if (parts.isEmpty()) "根目录" else parts.joinToString(" / ")
+}
+
+/** 文本预览解码:严格 UTF-8(去 BOM),失败回退 GBK——中文 Windows 记事本默认存 GBK。 */
+private fun decodeText(bytes: ByteArray): String {
+    val text = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+    } catch (_: java.nio.charset.CharacterCodingException) {
+        String(bytes, java.nio.charset.Charset.forName("GBK"))
+    }
+    return text.removePrefix("﻿")
 }
 
 @Composable

@@ -294,9 +294,11 @@ class TransferEngine(private val vaultManager: VaultManager) {
     /** 导出相对路径:folder/sub/name.ext(目录链从索引回溯)。 */
     private fun relPathOf(entry: VaultEntry, index: VaultIndex): String {
         val parts = mutableListOf(entry.name)
+        val seen = hashSetOf(entry.id)
         var cur = entry.parentId
-        while (cur != null) {
+        while (cur != null && cur !in seen) {
             val folder = index.find(cur) ?: break
+            seen.add(folder.id)
             parts.add(0, folder.name)
             cur = folder.parentId
         }
