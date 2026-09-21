@@ -66,6 +66,7 @@ fun VaultSettingsScreen(
     var notice by remember { mutableStateOf<String?>(null) }
 
     var changePwDialog by remember { mutableStateOf(false) }
+    var renameDialog by remember { mutableStateOf(false) }
     var decoyDialog by remember { mutableStateOf(false) }
     var disableDecoyConfirm by remember { mutableStateOf(false) }
     var disableBioConfirm by remember { mutableStateOf(false) }
@@ -102,7 +103,10 @@ fun VaultSettingsScreen(
             Spacer(Modifier.height(8.dp))
 
             // 基本信息
-            SettingRow("库名称", meta.name)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { SettingRow("库名称", meta.name) }
+                TextButton(onClick = { renameDialog = true }) { Text("重命名") }
+            }
             diskUsage?.let { SettingRow("磁盘占用", formatBytes(it)) }
             SettingRow("KDF 强度", "Argon2id ${meta.kdfParams.memoryKiB / 1024}MiB × ${meta.kdfParams.iterations}")
             // 诱骗会话中不显示任何"你在假库"的标记——界面与真库完全一致才有意义
@@ -239,6 +243,41 @@ fun VaultSettingsScreen(
 
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    // ---------- 重命名库 ----------
+    if (renameDialog) {
+        var name by remember { mutableStateOf(meta.name) }
+        var err by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { renameDialog = false },
+            title = { Text("重命名库") },
+            text = {
+                Column(Modifier.imePadding()) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it; err = null },
+                        singleLine = true,
+                        isError = err != null,
+                        supportingText = { err?.let { Text(it) } },
+                        modifier = Modifier.fillMaxWidth().imePadding(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val trimmed = name.trim()
+                    if (trimmed.isEmpty()) {
+                        err = "名称不能为空"
+                    } else {
+                        runCatching { container.vaultManager.renameVault(vaultId, trimmed) }
+                            .onSuccess { renameDialog = false; refreshMeta() }
+                            .onFailure { err = "失败:${it.message}" }
+                    }
+                }) { Text("确定") }
+            },
+            dismissButton = { TextButton(onClick = { renameDialog = false }) { Text("取消") } },
+        )
     }
 
     // ---------- 改密码 ----------

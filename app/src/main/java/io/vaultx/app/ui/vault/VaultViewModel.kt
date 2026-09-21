@@ -117,7 +117,10 @@ class VaultViewModel(
     fun clearNotice() { _notice.value = null }
 
     fun openFolder(entry: VaultEntry) {
-        if (entry.isFolder) _folderStack.value = _folderStack.value + entry
+        if (entry.isFolder) {
+            _folderStack.value = _folderStack.value + entry
+            _query.value = "" // 从搜索结果点进文件夹时退出搜索态,展示其内容
+        }
     }
 
     /** 返回上一层;已在根目录返回 false(交给系统返回)。 */
@@ -166,8 +169,9 @@ class VaultViewModel(
                     val res = container.transferEngine.import(
                         u, sources, currentFolderId, idx,
                         isCancelled = { cancelFlag.get() },
-                        onProgress = { done, total -> _transfer.value = TransferState(done, total, "导入中…") },
+                        onProgress = { done, total -> _transfer.value = _transfer.value?.copy(done = done, total = total) ?: TransferState(done, total, "导入中…") },
                         onCheckpoint = { i -> container.vaultManager.saveIndex(u, i) },
+                        onFileStart = { name -> _transfer.value = _transfer.value?.copy(label = name) ?: TransferState(0, 0, name) },
                     )
                     container.vaultManager.saveIndex(u, idx)
                     _index.value = idx
@@ -198,8 +202,13 @@ class VaultViewModel(
                 val u = unlocked ?: return@withLock
                 val idx = container.vaultManager.loadIndex(u)
                 val i = idx.entries.indexOfFirst { it.id == id }
-                if (i < 0 || newName.isBlank()) return@withLock
-                idx.entries[i] = idx.entries[i].copy(name = newName.trim(), updatedAt = System.currentTimeMillis())
+                val trimmed = newName.trim()
+                if (i < 0 || trimmed.isEmpty()) return@withLock
+                val cur = idx.entries[i]
+                if (cur.name == trimmed) return@withLock // 无变化不落盘
+                // 同目录重名自动 "(2)",与导入语义一致
+                val unique = container.transferEngine.uniqueName(trimmed, idx, cur.parentId, excludeId = id)
+                idx.entries[i] = cur.copy(name = unique, updatedAt = System.currentTimeMillis())
                 persist(u, idx)
             }
         }
@@ -220,7 +229,10 @@ class VaultViewModel(
                 ids.forEach { id ->
                     val i = idx.entries.indexOfFirst { it.id == id }
                     if (i >= 0 && idx.entries[i].parentId != targetFolderId) {
-                        idx.entries[i] = idx.entries[i].copy(parentId = targetFolderId, updatedAt = System.currentTimeMillis())
+                        val e = idx.entries[i]
+                        // 目标目录已有同名 → 自动消解(逐个处理,先移者先占位)
+                        val unique = container.transferEngine.uniqueName(e.name, idx, targetFolderId, excludeId = id)
+                        idx.entries[i] = e.copy(parentId = targetFolderId, name = unique, updatedAt = System.currentTimeMillis())
                         changed = true
                     }
                 }
@@ -247,12 +259,17 @@ class VaultViewModel(
     }
 
     fun newFolder(name: String) {
-        if (name.isBlank()) return
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
                 val idx = container.vaultManager.loadIndex(u)
-                idx.addEntry(name = name.trim(), kind = MediaKind.FOLDER, parentId = currentFolderId)
+                idx.addEntry(
+                    name = container.transferEngine.uniqueName(trimmed, idx, currentFolderId),
+                    kind = MediaKind.FOLDER,
+                    parentId = currentFolderId,
+                )
                 persist(u, idx)
             }
         }
@@ -270,14 +287,19 @@ class VaultViewModel(
             _transfer.value = TransferState(0, 0, "导出中…")
             try {
                 val u = unlocked ?: return@launch
-                val idx = _index.value ?: container.vaultManager.loadIndex(u)
-                // 展开文件夹:导出其全部子孙(文件夹条目本身也导出为空目录)
-                val doomed = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
-                val targets = idx.entries.filter { it.id in doomed }
+                // 在索引锁内收集目标快照(VaultEntry 不可变)并复制索引本身——
+                // relPathOf 在导出全程会回溯父链,期间并发的改名/删除不能碰活列表
+                val (targets, idx) = indexMutex.withLock {
+                    val i = _index.value ?: container.vaultManager.loadIndex(u)
+                    val doomed = ids.flatMap { i.descendantIds(it) }.toSet() + ids
+                    val t = i.entries.filter { it.id in doomed }
+                    t to VaultIndex(entries = ArrayList(i.entries), updatedAt = i.updatedAt)
+                }
                 val res = container.transferEngine.exportEntries(
                     u, targets, idx, sinkFactory,
                     isCancelled = { cancelFlag.get() },
-                    onProgress = { done, total -> _transfer.value = TransferState(done, total, "导出中…") },
+                    onProgress = { done, total -> _transfer.value = _transfer.value?.copy(done = done, total = total) ?: TransferState(done, total, "导出中…") },
+                    onFileStart = { name -> _transfer.value = _transfer.value?.copy(label = name) ?: TransferState(0, 0, name) },
                 )
                 _notice.value = buildString {
                     append("已导出 ${res.exported} 项")

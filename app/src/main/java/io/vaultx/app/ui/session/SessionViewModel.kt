@@ -84,11 +84,13 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
     /** 明文导出(会话文件本来就是明文,直接拷出)。 */
     fun exportPlain(storedName: String, output: OutputStream) {
         viewModelScope.launch(Dispatchers.IO) {
+            _busy.value = "导出中…"
             try {
                 output.use { out -> container.sessionManager.file(storedName).inputStream().use { it.copyTo(out) } }
             } catch (e: Throwable) {
                 _error.value = "导出失败:${e.message}"
             }
+            _busy.value = null
         }
     }
 

@@ -26,7 +26,7 @@ class VaultBrowsingTest {
     private fun pw(s: String) = s.toCharArray()
 
     @Test
-    fun searchIsCaseInsensitiveAndSkipsFolders() {
+    fun searchIsCaseInsensitiveAndIncludesFolders() {
         val idx = VaultIndex().apply {
             addEntry("Photos", MediaKind.FOLDER)
             addEntry("IMG_0001.JPG", MediaKind.IMAGE, blobId = "a")
@@ -35,7 +35,9 @@ class VaultBrowsingTest {
         }
         val hits = idx.search("img")
         assertEquals(2, hits.size)
-        assertTrue(idx.search("PHOTOS").isEmpty()) // 文件夹不参与
+        // 文件夹也命中(点击可直接进入);大小写不敏感
+        assertEquals(1, idx.search("PHOTOS").size)
+        assertTrue(idx.search("PHOTOS")[0].isFolder)
         assertTrue(idx.search("  ").isEmpty())
         assertTrue(idx.search("").isEmpty())
     }

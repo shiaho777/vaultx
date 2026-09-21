@@ -81,6 +81,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
         isCancelled: () -> Boolean = { false },
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
         onCheckpoint: (VaultIndex) -> Unit = {},
+        onFileStart: (name: String) -> Unit = {},
     ): ImportResult {
         check(activeFlag.compareAndSet(false, true)) { "transfer already active" }
         val total = sources.sumOf { countFiles(it) }
@@ -90,7 +91,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
         var lastCheckpoint = System.nanoTime()
         try {
             for (src in sources) {
-                imported += importOne(unlocked, src, parentId, index, isCancelled) {
+                imported += importOne(unlocked, src, parentId, index, isCancelled, onFileStart) {
                     done++
                     throttle.emit(done, total, onProgress)
                     val now = System.nanoTime()
@@ -123,6 +124,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
         parentId: String?,
         index: VaultIndex,
         isCancelled: () -> Boolean,
+        onFileStart: (String) -> Unit,
         onFileDone: () -> Unit,
     ): Int {
         if (isCancelled()) throw TransferCancelledException()
@@ -134,10 +136,11 @@ class TransferEngine(private val vaultManager: VaultManager) {
             )
             var n = 0
             for (child in src.children()) {
-                n += importOne(unlocked, child, folder.id, index, isCancelled, onFileDone)
+                n += importOne(unlocked, child, folder.id, index, isCancelled, onFileStart, onFileDone)
             }
             return n
         }
+        onFileStart(src.name)
         val blobId = vaultManager.newBlobId()
         val sink = vaultManager.prepareBlobSink(unlocked.vaultId, blobId)
         try {
@@ -164,9 +167,12 @@ class TransferEngine(private val vaultManager: VaultManager) {
         return 1
     }
 
-    /** 同目录内重名消解:"a.jpg" → "a (2).jpg" → "a (3).jpg"。文件夹不参与文件冲突。 */
-    internal fun uniqueName(name: String, index: VaultIndex, parentId: String?): String {
-        val taken = index.childrenOf(parentId).map { it.name }.toSet()
+    /** 同目录内重名消解:"a.jpg" → "a (2).jpg" → "a (3).jpg"。[excludeId] 排除条目自身(改名/移动时)。 */
+    internal fun uniqueName(name: String, index: VaultIndex, parentId: String?, excludeId: String? = null): String {
+        val taken = index.childrenOf(parentId).asSequence()
+            .filter { it.id != excludeId }
+            .map { it.name }
+            .toHashSet()
         if (name !in taken) return name
         val dot = name.lastIndexOf('.')
         val stem = if (dot > 0) name.substring(0, dot) else name
@@ -215,6 +221,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
         sinkFactory: ExportSinkFactory,
         isCancelled: () -> Boolean = { false },
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onFileStart: (name: String) -> Unit = {},
     ): ExportResult {
         check(activeFlag.compareAndSet(false, true)) { "transfer already active" }
         val total = entries.size
@@ -225,6 +232,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
             val failed = mutableListOf<String>()
             for (entry in entries) {
                 if (isCancelled()) throw TransferCancelledException(done)
+                onFileStart(entry.name)
                 if (entry.isFolder) {
                     // 空文件夹也要在导出端出现,否则目录结构丢信息
                     runCatching { sinkFactory.ensureDir(relPathOf(entry, index)) }

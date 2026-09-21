@@ -44,11 +44,11 @@ data class VaultIndex(
     fun childrenOf(folderId: String?): List<VaultEntry> =
         entries.filter { it.parentId == folderId }
 
-    /** 全局搜索:跨文件夹/分类,忽略大小写,跳过文件夹自身。 */
+    /** 全局搜索:跨文件夹/分类,忽略大小写;命中文件夹时点开可直接进入。 */
     fun search(query: String): List<VaultEntry> {
         val q = query.trim()
         if (q.isEmpty()) return emptyList()
-        return entries.filter { !it.isFolder && it.name.contains(q, ignoreCase = true) }
+        return entries.filter { it.name.contains(q, ignoreCase = true) }
     }
 
     /** 文件夹的完整子孙条目 id 集(删除/移动时级联用)。 */

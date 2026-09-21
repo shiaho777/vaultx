@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Output
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
@@ -76,6 +77,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -129,6 +131,10 @@ fun VaultHomeScreen(
 
     val entries = vm.visibleEntries()
     val meta = remember(index) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
+    // 文件夹格子要显示子项数:一次聚合 parentId→count,避免每格全表扫
+    val folderCounts = remember(index) {
+        index?.entries?.groupingBy { it.parentId }?.eachCount() ?: emptyMap()
+    }
 
     // SAF 启动器
     val importFilesLauncher = rememberLauncherForActivityResult(
@@ -323,6 +329,7 @@ fun VaultHomeScreen(
                             EntryCell(
                                 entry = entry,
                                 vaultId = vaultId,
+                                childCount = if (entry.isFolder) folderCounts[entry.id] ?: 0 else null,
                                 selected = entry.id in selection,
                                 selectionMode = selection.isNotEmpty(),
                                 onNeedThumb = { vm.ensureThumb(entry) },
@@ -396,16 +403,14 @@ fun VaultHomeScreen(
                 text = { Text("重命名") },
                 onClick = { renameTarget = entry; overflowFor = null },
             )
-            if (!entry.isFolder) {
-                DropdownMenuItem(
-                    text = { Text("导出") },
-                    onClick = {
-                        pendingExport = setOf(entry.id)
-                        exportLauncher.launch(null)
-                        overflowFor = null
-                    },
-                )
-            }
+            DropdownMenuItem(
+                text = { Text("导出") },
+                onClick = {
+                    pendingExport = setOf(entry.id)
+                    exportLauncher.launch(null)
+                    overflowFor = null
+                },
+            )
             DropdownMenuItem(
                 text = { Text("移动到…") },
                 onClick = {
@@ -571,6 +576,7 @@ private fun MoveTargetRow(label: String, onClick: () -> Unit) {
 private fun EntryCell(
     entry: VaultEntry,
     vaultId: String,
+    childCount: Int?,
     selected: Boolean,
     selectionMode: Boolean,
     onNeedThumb: () -> Unit,
@@ -617,13 +623,21 @@ private fun EntryCell(
                             Icons.Filled.Folder, null, Modifier.size(44.dp),
                             tint = MaterialTheme.colorScheme.primary,
                         )
-                        entry.kind == MediaKind.IMAGE && entry.hasThumb -> {
+                        entry.hasThumb && entry.blobId != null -> {
+                            // 图/视频/音频共用加密缩略图;音视频叠个播放标示意可播
                             AsyncImage(
                                 model = VaultImageRef(vaultId, entry.blobId!!, preferThumb = true),
                                 contentDescription = entry.name,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop,
                             )
+                            if (entry.kind == MediaKind.VIDEO || entry.kind == MediaKind.AUDIO) {
+                                Icon(
+                                    Icons.Filled.PlayCircle, null,
+                                    Modifier.align(Alignment.Center).size(28.dp),
+                                    tint = Color.White.copy(alpha = 0.85f),
+                                )
+                            }
                         }
                         else -> Icon(
                             iconFor(entry.kind), null, Modifier.size(40.dp),
@@ -637,13 +651,11 @@ private fun EntryCell(
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 2,
                 )
-                if (!entry.isFolder) {
-                    Text(
-                        formatBytes(entry.sizeBytes),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (selected) {
                 Icon(

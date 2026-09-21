@@ -289,4 +289,37 @@ class TransferEngineTest {
         assertEquals(1, seen.last().second)
         assertEquals(1, seen.last().first)
     }
+
+    @Test
+    fun uniqueNameDedupesAndExcludesSelf() {
+        val index = VaultIndex()
+        val a = index.addEntry("a.txt", MediaKind.OTHER)
+        index.addEntry("a (2).txt", MediaKind.OTHER)
+        // 普通冲突 → (3)
+        assertEquals("a (3).txt", engine.uniqueName("a.txt", index, null))
+        // 排除自身:改名为同名(自身)不冲突
+        assertEquals("a.txt", engine.uniqueName("a.txt", index, null, excludeId = a.id))
+        // 排除自身但与兄弟冲突仍消解(stem 含 "(2)" 再叠一层)
+        assertEquals("a (2) (2).txt", engine.uniqueName("a (2).txt", index, null, excludeId = a.id))
+        // 无扩展名 / 隐藏文件
+        val idx2 = VaultIndex()
+        idx2.addEntry("dir", MediaKind.FOLDER)
+        assertEquals("dir (2)", engine.uniqueName("dir", idx2, null))
+        val idx3 = VaultIndex()
+        idx3.addEntry(".env", MediaKind.OTHER)
+        assertEquals(".env (2)", engine.uniqueName(".env", idx3, null))
+    }
+
+    @Test
+    fun onFileStartReportsEachImportedName() {
+        val index = VaultIndex()
+        val started = mutableListOf<String>()
+        engine.import(
+            unlocked,
+            listOf(MemFile("x.txt", "1".toByteArray()), MemFile("y.txt", "2".toByteArray())),
+            null, index,
+            onFileStart = { started += it },
+        )
+        assertEquals(listOf("x.txt", "y.txt"), started)
+    }
 }
