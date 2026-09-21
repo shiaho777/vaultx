@@ -66,20 +66,40 @@ class VaultViewModel(
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice
 
+    /** 待最终落删的删除批次(撤销窗口内 blob 完好)。 */
+    data class PendingDeletion(val entries: List<VaultEntry>, val blobIds: List<String>)
+
+    private val _undoDelete = MutableStateFlow<PendingDeletion?>(null)
+    val undoDelete: StateFlow<PendingDeletion?> = _undoDelete
+
     private val indexMutex = Mutex()
     private val cancelFlag = AtomicBoolean(false)
+    private var undoJob: kotlinx.coroutines.Job? = null
 
     val currentFolderId: String? get() = _folderStack.value.lastOrNull()?.id
     val viaDecoy: Boolean get() = unlocked?.viaDecoy == true
 
     init {
         refresh()
+        // 孤儿 blob 清扫(取消/崩溃残迹)。诱骗库跳过:两套索引各只覆盖自己的 blob,
+        // 单边清扫会误删另一边的数据
+        viewModelScope.launch(Dispatchers.IO) {
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                if (!u.meta.hasDecoy) {
+                    runCatching {
+                        container.vaultManager.sweepOrphanBlobs(vaultId, container.vaultManager.loadIndex(u))
+                    }
+                }
+            }
+        }
     }
 
     fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
+                flushPendingDelete(u)
                 val idx = runCatching { container.vaultManager.loadIndex(u) }
                     .getOrElse {
                         _error.value = "索引读取失败:${it.message}"
@@ -165,6 +185,7 @@ class VaultViewModel(
             indexMutex.withLock {
                 try {
                     val u = unlocked ?: return@withLock
+                flushPendingDelete(u)
                     val idx = container.vaultManager.loadIndex(u)
                     val res = container.transferEngine.import(
                         u, sources, currentFolderId, idx,
@@ -200,6 +221,7 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
+                flushPendingDelete(u)
                 val idx = container.vaultManager.loadIndex(u)
                 val i = idx.entries.indexOfFirst { it.id == id }
                 val trimmed = newName.trim()
@@ -218,6 +240,7 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
+                flushPendingDelete(u)
                 val idx = container.vaultManager.loadIndex(u)
                 // 防环:目标不能是被移条目自身或其子孙
                 val forbidden = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
@@ -246,16 +269,78 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
+                flushPendingDelete(u) // 上一批没过期又来一批:先把旧的落实
                 val idx = container.vaultManager.loadIndex(u)
-                // 级联:文件夹连子孙一起删;顺序:先索引落盘成功 → 再删 blob
+                // 级联:文件夹连子孙一起删;顺序:先索引落盘成功,blob 进撤销窗
                 val doomed = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
-                val blobIds = idx.entries.filter { it.id in doomed }.mapNotNull { it.blobId }
+                val victims = idx.entries.filter { it.id in doomed }
                 idx.entries.removeAll { it.id in doomed }
-                if (!persist(u, idx)) return@withLock // 保存失败:blob 一个不删
-                blobIds.forEach { container.vaultManager.deleteBlob(u.vaultId, it) }
+                if (!persist(u, idx)) return@withLock // 保存失败:什么都不动
+                val pd = PendingDeletion(victims, victims.mapNotNull { it.blobId })
+                _undoDelete.value = pd
+                scheduleDeleteFinalize(u, pd)
+                _notice.value = "已删除 ${victims.size} 项"
                 clearSelection()
             }
         }
+    }
+
+    /** 撤销最近一次删除:索引恢复(重名自动消解;blob 已被落实删除的条目跳过)。 */
+    fun undoDelete() {
+        val pd = _undoDelete.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            indexMutex.withLock {
+                if (_undoDelete.value !== pd) return@withLock
+                val u = unlocked ?: return@withLock
+                flushPendingDelete(u)
+                undoJob?.cancel()
+                val idx = container.vaultManager.loadIndex(u)
+                // 父链可能同批恢复:先按"批内也算存在"放行,再逐个加回
+                val restoring = pd.entries.map { it.id }.toSet()
+                pd.entries.forEach { e ->
+                    if (idx.find(e.id) != null) return@forEach
+                    val parentOk = e.parentId == null || idx.find(e.parentId) != null || e.parentId in restoring
+                    val blobAlive = e.blobId == null || container.vaultManager.blobExists(u.vaultId, e.blobId)
+                    if (parentOk && blobAlive) {
+                        val name = container.transferEngine.uniqueName(e.name, idx, e.parentId, excludeId = e.id)
+                        idx.entries.add(e.copy(name = name))
+                    }
+                }
+                persist(u, idx)
+                _undoDelete.value = null
+                _notice.value = "已恢复 ${pd.entries.size} 项"
+            }
+        }
+    }
+
+    /** 撤销窗到期:落实删除 blob。任何新索引变更也会先调 [flushPendingDelete] 落实上一批。 */
+    private fun scheduleDeleteFinalize(u: UnlockedVault, pd: PendingDeletion) {
+        undoJob?.cancel()
+        undoJob = viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(UNDO_WINDOW_MS)
+            indexMutex.withLock {
+                if (_undoDelete.value === pd) {
+                    pd.blobIds.forEach { container.vaultManager.deleteBlob(u.vaultId, it) }
+                    _undoDelete.value = null
+                }
+            }
+        }
+    }
+
+    /** 立刻落实挂起的删除(新变更前/VM 销毁时调用)。须持 indexMutex。 */
+    private fun flushPendingDelete(u: UnlockedVault) {
+        val pd = _undoDelete.value ?: return
+        undoJob?.cancel()
+        _undoDelete.value = null
+        pd.blobIds.forEach { runCatching { container.vaultManager.deleteBlob(u.vaultId, it) } }
+    }
+
+    override fun onCleared() {
+        // VM 销毁(离开库/锁定):挂起的删除立即落实,不留"索引已删但密文滞留"的窗口
+        _undoDelete.value?.blobIds?.forEach {
+            runCatching { container.vaultManager.deleteBlob(vaultId, it) }
+        }
+        _undoDelete.value = null
     }
 
     fun newFolder(name: String) {
@@ -264,6 +349,7 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
+                flushPendingDelete(u)
                 val idx = container.vaultManager.loadIndex(u)
                 idx.addEntry(
                     name = container.transferEngine.uniqueName(trimmed, idx, currentFolderId),
@@ -345,5 +431,10 @@ class VaultViewModel(
             .onSuccess { _index.value = idx }
             .onFailure { _error.value = "保存索引失败:${it.message}" }
             .isSuccess
+    }
+
+    companion object {
+        /** 删除撤销窗口:blob 延迟删除时长,窗口内可整批恢复。 */
+        private const val UNDO_WINDOW_MS = 8_000L
     }
 }

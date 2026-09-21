@@ -4,8 +4,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -63,13 +66,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,10 +83,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
@@ -116,6 +130,7 @@ fun VaultHomeScreen(
     val transfer by vm.transfer.collectAsState()
     val error by vm.error.collectAsState()
     val notice by vm.notice.collectAsState()
+    val undo by vm.undoDelete.collectAsState()
 
     val searchFocus = remember { FocusRequester() }
     var searching by remember { mutableStateOf(false) }
@@ -128,6 +143,20 @@ fun VaultHomeScreen(
     var deleteConfirm by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Set<String>?>(null) }
     var textPreview by remember { mutableStateOf<VaultEntry?>(null) }
+
+    // 拖拽移动状态:选中态下拖卡片到文件夹格子上
+    var dragEntry by remember { mutableStateOf<VaultEntry?>(null) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var dragOrigin by remember { mutableStateOf(Offset.Zero) }
+    var dragSize by remember { mutableStateOf(IntSize.Zero) }
+    var dropTargetId by remember { mutableStateOf<String?>(null) }
+    var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
+    val folderBounds = remember { mutableStateMapOf<String, Rect>() }
+    // 不能落在被拖条目自身/子孙上
+    val dragForbidden = remember(selection, index) {
+        if (index == null) selection
+        else selection + selection.flatMap { index!!.descendantIds(it) }
+    }
 
     val entries = vm.visibleEntries()
     val meta = remember(index) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
@@ -168,6 +197,14 @@ fun VaultHomeScreen(
     }
     LaunchedEffect(searching) {
         if (searching) searchFocus.requestFocus()
+    }
+    // 选择集中途清空(返回键/锁定)时丢弃悬空的拖拽影子
+    LaunchedEffect(selection.isEmpty()) {
+        if (selection.isEmpty()) {
+            dragEntry = null
+            dropTargetId = null
+            dragOffset = Offset.Zero
+        }
     }
 
     BackHandler(enabled = folderStack.isNotEmpty() || selection.isNotEmpty()) {
@@ -284,7 +321,12 @@ fun VaultHomeScreen(
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .onGloballyPositioned { overlayOrigin = it.boundsInWindow().topLeft },
+        ) {
             Column(Modifier.fillMaxSize()) {
                 transfer?.let { t ->
                     Row(
@@ -311,6 +353,29 @@ fun VaultHomeScreen(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                     )
                 }
+                // 删除撤销条:窗口内 blob 仍在,一键整批恢复
+                undo?.let { pd ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.inverseSurface,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "已删除 ${pd.entries.size} 项",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.inverseOnSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { vm.undoDelete() }) {
+                                Text("撤销", color = MaterialTheme.colorScheme.inversePrimary)
+                            }
+                        }
+                    }
+                }
                 if (entries.isEmpty()) {
                     EmptyState(
                         title = if (query.isNotBlank()) "没有匹配的文件" else "这里是空的",
@@ -332,6 +397,34 @@ fun VaultHomeScreen(
                                 childCount = if (entry.isFolder) folderCounts[entry.id] ?: 0 else null,
                                 selected = entry.id in selection,
                                 selectionMode = selection.isNotEmpty(),
+                                draggable = selection.isNotEmpty() && entry.id in selection,
+                                dropHighlighted = entry.id == dropTargetId,
+                                onBoundsChanged = if (entry.isFolder) {
+                                    { r -> if (r == null) folderBounds.remove(entry.id) else folderBounds[entry.id] = r }
+                                } else {
+                                    null
+                                },
+                                onDragStart = { origin, size ->
+                                    dragEntry = entry
+                                    dragOrigin = origin
+                                    dragSize = size
+                                    dragOffset = Offset.Zero
+                                    dropTargetId = null
+                                },
+                                onDrag = { amt ->
+                                    dragOffset += amt
+                                    val tip = dragOrigin + dragOffset + Offset(dragSize.width / 2f, dragSize.height / 2f)
+                                    dropTargetId = folderBounds.entries
+                                        .firstOrNull { (id, r) -> id !in dragForbidden && r.contains(tip) }
+                                        ?.key
+                                },
+                                onDragEnd = {
+                                    val target = dropTargetId
+                                    if (target != null) vm.moveEntries(selection, target)
+                                    dragEntry = null
+                                    dropTargetId = null
+                                    dragOffset = Offset.Zero
+                                },
                                 onNeedThumb = { vm.ensureThumb(entry) },
                                 onClick = {
                                     if (selection.isNotEmpty()) {
@@ -351,6 +444,35 @@ fun VaultHomeScreen(
                                 onOverflow = { overflowFor = entry },
                             )
                         }
+                    }
+                }
+            }
+
+            // 拖拽移动的影子卡片(跟随手指;落在文件夹上时该格高亮)
+            dragEntry?.let { de ->
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.offset {
+                        IntOffset(
+                            (dragOrigin.x - overlayOrigin.x + dragOffset.x).roundToInt(),
+                            (dragOrigin.y - overlayOrigin.y + dragOffset.y).roundToInt(),
+                        )
+                    },
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(iconFor(de.kind), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (selection.size > 1) "${de.name} 等 ${selection.size} 项" else de.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                        )
                     }
                 }
             }
@@ -579,12 +701,19 @@ private fun EntryCell(
     childCount: Int?,
     selected: Boolean,
     selectionMode: Boolean,
+    draggable: Boolean,
+    dropHighlighted: Boolean,
+    onBoundsChanged: ((Rect?) -> Unit)?,
+    onDragStart: (origin: Offset, size: IntSize) -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
     onNeedThumb: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOverflow: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    var cellWindow by remember { mutableStateOf(Rect.Zero) }
     // 媒体类条目懒生成加密缩略图(一次即可,hasThumb 落索引)
     androidx.compose.runtime.LaunchedEffect(entry.id) {
         if (!entry.isFolder && !entry.hasThumb &&
@@ -593,20 +722,46 @@ private fun EntryCell(
             onNeedThumb()
         }
     }
+    // 文件夹格子向父级上报自己的窗口矩形,滚出屏幕时注销(防幽灵落点)
+    androidx.compose.runtime.DisposableEffect(entry.id) {
+        onDispose { onBoundsChanged?.invoke(null) }
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.82f)
+            .onGloballyPositioned {
+                cellWindow = it.boundsInWindow()
+                onBoundsChanged?.invoke(cellWindow)
+            }
             .pressScale(interactionSource)
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,
                 onLongClick = onLongClick,
+            )
+            // 选中态下可拖:拖到某个文件夹格子上松手即移动(长按仍是点选,不冲突)
+            .pointerInput(draggable) {
+                if (!draggable) return@pointerInput
+                detectDragGestures(
+                    onDragStart = { onDragStart(cellWindow.topLeft, IntSize(size.width, size.height)) },
+                    onDrag = { change, amt -> change.consume(); onDrag(amt) },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragEnd() },
+                )
+            }
+            .border(
+                width = if (dropHighlighted) 2.dp else 0.dp,
+                color = if (dropHighlighted) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = MaterialTheme.shapes.medium,
             ),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = when {
+                dropHighlighted -> MaterialTheme.colorScheme.tertiaryContainer
+                selected -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
         ),
     ) {
         Box(Modifier.fillMaxSize()) {

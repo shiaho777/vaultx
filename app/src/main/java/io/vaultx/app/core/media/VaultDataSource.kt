@@ -7,6 +7,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import io.vaultx.app.core.vault.UnlockedVault
 import io.vaultx.app.core.vault.VaultManager
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.SeekableByteChannel
 
@@ -14,23 +15,29 @@ import java.nio.channels.SeekableByteChannel
  * ExoPlayer 的解密 DataSource:底层是 Tink 的可随机定位解密通道,
  * 拖进度条时按需 seek 拉密文段解密——不用整段落地。
  *
- * [lengthBytes] 为明文长度(索引里的 sizeBytes)。
+ * blobId 在 [open] 时从 `dataSpec.uri` 解析("vaultx://<vaultId>/<blobId>"),
+ * 因此一个实例即可服务播放列表(连播),不必每条媒体建一个工厂。
+ * [lengthOf] 给明文长度(索引里的 sizeBytes)。
  */
 class VaultDataSource(
     private val unlocked: UnlockedVault,
     private val vaultManager: VaultManager,
-    private val blobId: String,
-    private val lengthBytes: Long,
+    private val lengthOf: (String) -> Long,
 ) : DataSource {
 
     private var channel: SeekableByteChannel? = null
+    private var blobId: String? = null
     private var bytesRemaining = 0L
 
     override fun open(dataSpec: DataSpec): Long {
-        val ch = vaultManager.openBlobChannel(unlocked, blobId)
+        val id = dataSpec.uri.lastPathSegment
+            ?: throw IOException("vaultx uri missing blob id: ${dataSpec.uri}")
+        blobId = id
+        val len = lengthOf(id)
+        val ch = vaultManager.openBlobChannel(unlocked, id)
         channel = ch
         ch.position(dataSpec.position)
-        bytesRemaining = (lengthBytes - dataSpec.position).coerceAtLeast(0)
+        bytesRemaining = (len - dataSpec.position).coerceAtLeast(0)
         return bytesRemaining
     }
 
@@ -44,24 +51,27 @@ class VaultDataSource(
         return n
     }
 
-    override fun getUri(): Uri = Uri.parse("vaultx://${unlocked.vaultId}/$blobId")
+    override fun getUri(): Uri = Uri.parse("vaultx://${unlocked.vaultId}/${blobId ?: ""}")
 
     override fun close() {
         channel?.close()
         channel = null
+        blobId = null
     }
 
     override fun addTransferListener(transferListener: TransferListener) {}
     override fun getResponseHeaders(): Map<String, List<String>> = emptyMap()
 
-    /** 播放器工厂:一个媒体条目一个实例。 */
+    /**
+     * 播放器工厂:[sizes] 是 blobId → 明文长度的映射(通常来自索引同目录媒体)。
+     * MediaItem 的 uri 携带 blobId,DataSource 在 open 时解析。
+     */
     class Factory(
         private val unlocked: UnlockedVault,
         private val vaultManager: VaultManager,
-        private val blobId: String,
-        private val lengthBytes: Long,
+        private val sizes: Map<String, Long>,
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
-            VaultDataSource(unlocked, vaultManager, blobId, lengthBytes)
+            VaultDataSource(unlocked, vaultManager) { sizes[it] ?: 0L }
     }
 }

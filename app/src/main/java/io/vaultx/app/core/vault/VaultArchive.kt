@@ -28,7 +28,7 @@ import java.util.UUID
 class VaultArchive(private val vaultManager: VaultManager) {
 
     /** 免密码导出:逐文件哈希 + 密文原样打包。meta.vault 排最前,便于快速读头。 */
-    fun exportVault(vaultId: String, output: OutputStream) {
+    fun exportVault(vaultId: String, output: OutputStream, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }) {
         val dir = vaultManager.vaultDir(vaultId)
         require(dir.isDirectory) { "vault not found: $vaultId" }
         val files = dir.walkTopDown()
@@ -39,7 +39,7 @@ class VaultArchive(private val vaultManager: VaultManager) {
         out.write(MAGIC)
         out.writeByte(VERSION)
         out.writeInt(files.size)
-        for (f in files) {
+        files.forEachIndexed { i, f ->
             val rel = f.relativeTo(dir).invariantSeparatorsPath
             val pathBytes = rel.toByteArray(Charsets.UTF_8)
             val digest = sha256Of(f)
@@ -48,6 +48,7 @@ class VaultArchive(private val vaultManager: VaultManager) {
             out.writeLong(f.length())
             out.write(digest)
             f.inputStream().use { it.copyTo(out) }
+            onProgress(i + 1, files.size)
         }
         out.flush()
     }
@@ -84,13 +85,18 @@ class VaultArchive(private val vaultManager: VaultManager) {
      * @throws ArchiveException 格式错/哈希不符/缺 meta/尾部多余数据/库已存在
      * @throws WrongPasswordException 密码不符(真链或诱骗链均通过才算对)
      */
-    fun importVault(input: InputStream, password: CharArray): VaultMeta {
+    fun importVault(
+        input: InputStream,
+        password: CharArray,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): VaultMeta {
         val staging = File(vaultManager.pendingRoot(), "import-${UUID.randomUUID()}")
         try {
             staging.mkdirs()
             val data = DataInputStream(input)
             val count = readHeader(data)
             var meta: VaultMeta? = null
+            var done = 0
             repeat(count) {
                 val path: String
                 val size: Long
@@ -117,6 +123,8 @@ class VaultArchive(private val vaultManager: VaultManager) {
                         throw ArchiveException("meta.vault 解析失败")
                     }
                 }
+                done++
+                onProgress(done, count)
             }
             // 有效归档在最后一个条目后必须正好 EOF;多余字节 = 截断伪造/追加篡改
             if (data.read() != -1) throw ArchiveException("归档尾部有多余数据(可能被篡改)")

@@ -107,9 +107,9 @@ fun LockedHomeScreen(
     var overflowMenu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    // 归档导入临时状态(密码对话框用)
+    // 归档导入临时状态(密码对话框用)——只留 Uri,归档体不整段进内存
     var archiveImportMeta by remember { mutableStateOf<VaultMeta?>(null) }
-    var archiveImportBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var archiveImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var exportVaultMeta by remember { mutableStateOf<VaultMeta?>(null) }
 
     fun refresh() {
@@ -211,16 +211,21 @@ fun LockedHomeScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                busy = "读取归档…"
-                val bytes = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                busy = "读取归档信息…"
+                // 不整段读进内存:peekMeta 扫头拿到 meta 就停;正式导入时再开一条流
+                val meta = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use {
+                            container.vaultArchive.peekMeta(it)
+                        }
+                    }.getOrNull()
                 }
                 busy = null
-                if (bytes != null) {
-                    // 先读 meta 让用户确认并输密码
-                    runCatching { container.vaultArchive.peekMeta(bytes.inputStream()) }
-                        .onSuccess { meta -> archiveImportMeta = meta; archiveImportBytes = bytes }
-                        .onFailure { e -> error = e.message ?: "不是有效的 .fvault 归档" }
+                if (meta != null) {
+                    archiveImportMeta = meta
+                    archiveImportUri = uri
+                } else {
+                    error = "不是有效的 .fvault 归档"
                 }
             }
         }
@@ -398,11 +403,12 @@ fun LockedHomeScreen(
         exportVaultMeta = null
         if (uri != null && meta != null) {
             scope.launch {
-                busy = "导出归档…"
                 runCatching {
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openOutputStream(uri)?.use { out ->
-                            container.vaultArchive.exportVault(meta.vaultId, out)
+                            container.vaultArchive.exportVault(meta.vaultId, out) { d, t ->
+                                busy = "导出归档 $d / $t"
+                            }
                         }
                     }
                 }.onFailure { error = "导出失败:${it.message}" }
@@ -422,7 +428,7 @@ fun LockedHomeScreen(
         var pw by remember { mutableStateOf("") }
         var pwError by remember { mutableStateOf<String?>(null) }
         AlertDialog(
-            onDismissRequest = { archiveImportMeta = null; archiveImportBytes = null },
+            onDismissRequest = { archiveImportMeta = null; archiveImportUri = null },
             title = { Text("导入「${meta.name}」") },
             text = {
                 Column(Modifier.imePadding()) {
@@ -433,16 +439,19 @@ fun LockedHomeScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val bytes = archiveImportBytes ?: return@TextButton
+                    val uri = archiveImportUri ?: return@TextButton
                     scope.launch {
-                        busy = "导入中…(逐文件校验 SHA-256)"
                         runCatching {
                             withContext(Dispatchers.IO) {
-                                container.vaultArchive.importVault(bytes.inputStream(), pw.toCharArray())
+                                context.contentResolver.openInputStream(uri)?.use { ins ->
+                                    container.vaultArchive.importVault(ins, pw.toCharArray()) { d, t ->
+                                        busy = "校验并导入 $d / $t"
+                                    }
+                                } ?: throw io.vaultx.app.core.vault.ArchiveException("无法读取所选文件")
                             }
                         }.onSuccess {
                             archiveImportMeta = null
-                            archiveImportBytes = null
+                            archiveImportUri = null
                             refresh()
                         }.onFailure { e ->
                             pwError = if (e is WrongPasswordException) "密码错误" else e.message
@@ -451,7 +460,7 @@ fun LockedHomeScreen(
                     }
                 }) { Text("导入") }
             },
-            dismissButton = { TextButton(onClick = { archiveImportMeta = null; archiveImportBytes = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { archiveImportMeta = null; archiveImportUri = null }) { Text("取消") } },
         )
     }
 

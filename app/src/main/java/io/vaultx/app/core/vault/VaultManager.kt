@@ -590,6 +590,25 @@ class VaultManager(private val rootDir: File) {
         }.getOrNull()
     }
 
+    /**
+     * 清掉索引不再引用的孤儿 blob/thumb(取消残留、崩溃残迹、撤销窗口过期后的漏删)。
+     * ⚠ 只可用于无诱骗的库:真/诱骗索引各只覆盖自己的 blob,拿着单边索引扫
+     * 会把另一边引用的密文当垃圾删掉。
+     */
+    fun sweepOrphanBlobs(vaultId: String, index: VaultIndex) {
+        val live = index.entries.mapNotNull { it.blobId }.toSet()
+        blobsDir(vaultId).listFiles()?.forEach { shard ->
+            if (!shard.isDirectory) return@forEach
+            shard.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.removeSuffix(".vlt") !in live) f.delete()
+            }
+            if (shard.list()?.isEmpty() == true) shard.delete()
+        }
+        thumbsDir(vaultId).listFiles()?.forEach { f ->
+            if (f.isFile && f.name.removeSuffix(".vlt") !in live) f.delete()
+        }
+    }
+
     fun deleteBlob(vaultId: String, blobId: String) {
         blobFile(vaultId, blobId).delete()
         thumbFile(vaultId, blobId).delete()

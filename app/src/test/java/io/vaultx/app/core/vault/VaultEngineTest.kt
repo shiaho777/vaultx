@@ -378,4 +378,26 @@ class VaultEngineTest {
         assertTrue(manager.listVaults().isEmpty())
         assertEquals(0, manager.pendingRoot().listFiles()?.size ?: 0)
     }
+
+    @Test
+    fun sweepOrphanBlobsRemovesUnreferenced() {
+        val meta = manager.createVault("s", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("pw1234"))
+        val idx = VaultIndex()
+        idx.addEntry("keep.txt", MediaKind.OTHER, blobId = "live-1")
+        manager.saveIndex(unlocked, idx)
+        // 活引用 blob + 孤儿 blob + 孤儿 thumb
+        val live = manager.blobFile(meta.vaultId, "live-1")
+        live.parentFile!!.mkdirs(); live.writeBytes("x".toByteArray())
+        val orphan = manager.blobFile(meta.vaultId, "dead-9")
+        orphan.parentFile!!.mkdirs(); orphan.writeBytes("x".toByteArray())
+        val orphanThumb = manager.thumbFile(meta.vaultId, "dead-9")
+        orphanThumb.parentFile!!.mkdirs(); orphanThumb.writeBytes("t".toByteArray())
+
+        manager.sweepOrphanBlobs(meta.vaultId, idx)
+
+        assertTrue(live.isFile)
+        assertFalse(orphan.exists())
+        assertFalse(orphanThumb.exists())
+    }
 }
