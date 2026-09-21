@@ -6,7 +6,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,17 +22,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,13 +53,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.vaultx.app.AppContainer
 import io.vaultx.app.core.crypto.KdfParams
+import io.vaultx.app.core.crypto.PasswordStrength
 import io.vaultx.app.core.crypto.VaultCrypto
 import io.vaultx.app.core.crypto.WrongPasswordException
 import io.vaultx.app.core.vault.UnlockedVault
@@ -62,6 +73,7 @@ import io.vaultx.app.core.vault.VaultMeta
 import io.vaultx.app.ui.components.ConfirmDialog
 import io.vaultx.app.ui.components.EmptyState
 import io.vaultx.app.ui.components.PasswordField
+import io.vaultx.app.ui.components.formatBytes
 import io.vaultx.app.ui.components.pressScale
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -71,7 +83,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 有锁模式首页:库列表 + 建库 + 解锁门(密码/生物识别) + 长按管理(改名/删除/备份)。
+ * 有锁模式首页:库列表 + 建库 + 解锁门(密码/生物识别) + 长按管理(改名/删除/备份)
+ * + 顶栏紧急销毁。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,12 +95,16 @@ fun LockedHomeScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var vaults by remember { mutableStateOf(container.vaultManager.listVaults()) }
+    val haptics = LocalHapticFeedback.current
+
+    var vaults by remember { mutableStateOf<List<VaultCardInfo>?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var unlockTarget by remember { mutableStateOf<VaultMeta?>(null) }
     var menuTarget by remember { mutableStateOf<VaultMeta?>(null) }
     var renameTarget by remember { mutableStateOf<VaultMeta?>(null) }
     var deleteTarget by remember { mutableStateOf<VaultMeta?>(null) }
+    var panicConfirm by remember { mutableStateOf(false) }
+    var overflowMenu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     // 归档导入临时状态(密码对话框用)
@@ -96,16 +113,45 @@ fun LockedHomeScreen(
     var exportVaultMeta by remember { mutableStateOf<VaultMeta?>(null) }
 
     fun refresh() {
-        vaults = container.vaultManager.listVaults()
+        scope.launch(Dispatchers.IO) {
+            val list = runCatching {
+                container.vaultManager.listVaults().map { meta ->
+                    VaultCardInfo(
+                        meta = meta,
+                        entryCount = container.vaultManager.loadPlainIndex(meta.vaultId)
+                            ?.entries?.count { !it.isFolder },
+                        // 诱骗库与真库共用磁盘目录:显示物理占用会把隐藏体量泄露给诱骗会话
+                        usageBytes = if (meta.hasDecoy) null else container.vaultManager.vaultDiskUsage(meta.vaultId),
+                        hasBio = container.vaultManager.readBioWrap(meta.vaultId) != null,
+                    )
+                }
+            }.getOrElse {
+                withContext(Dispatchers.Main) { error = "列表加载失败:${it.message}" }
+                null
+            }
+            if (list != null) vaults = list
+        }
+    }
+
+    // 冷启动加载 + 从库内返回时刷新(条目数/占用可能已变)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        refresh()
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     /** 解锁成功后登记会话并进库。 */
     fun onUnlocked(u: UnlockedVault) {
+        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
         container.session.put(u)
         onOpenVault(u.vaultId)
     }
 
-    /** 生物识别解锁路径:bio.wrap 存在时可用。 */
+    /** 生物识别解锁路径:bio.wrap 存在时可用;失败/点"使用密码"回退密码框。 */
     fun biometricUnlock(meta: VaultMeta) {
         val wrapped = container.vaultManager.readBioWrap(meta.vaultId) ?: return
         if (!container.biometrics.isAvailable(context)) {
@@ -123,16 +169,21 @@ fun LockedHomeScreen(
                         val vmk = result.cryptoObject?.let { container.biometrics.unwrapVmk(it, wrapped) }
                         if (vmk == null) {
                             error = "生物识别解锁失败"
+                            unlockTarget = meta
                             return
                         }
                         onUnlocked(UnlockedVault(meta, VaultCrypto(vmk), viaDecoy = false))
                     }
 
                     override fun onAuthenticationError(code: Int, msg: CharSequence) {
-                        if (code != BiometricPrompt.ERROR_USER_CANCELED &&
-                            code != BiometricPrompt.ERROR_NEGATIVE_BUTTON
-                        ) {
-                            error = "生物识别失败:$msg"
+                        when (code) {
+                            // 用户点了"使用密码"→ 回退密码框,不是死路
+                            BiometricPrompt.ERROR_NEGATIVE_BUTTON -> unlockTarget = meta
+                            BiometricPrompt.ERROR_USER_CANCELED -> Unit
+                            else -> {
+                                error = "生物识别失败:$msg"
+                                unlockTarget = meta
+                            }
                         }
                     }
                 },
@@ -148,8 +199,10 @@ fun LockedHomeScreen(
             container.vaultManager.deleteBioWrap(meta.vaultId)
             container.biometrics.deleteKey(meta.vaultId)
             error = "生物识别密钥已失效(指纹变更),请用密码解锁"
+            unlockTarget = meta
         } catch (e: Exception) {
             error = "生物识别解锁失败"
+            unlockTarget = meta
         }
     }
 
@@ -158,7 +211,7 @@ fun LockedHomeScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                busy = "导入归档…"
+                busy = "读取归档…"
                 val bytes = withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 }
@@ -167,7 +220,7 @@ fun LockedHomeScreen(
                     // 先读 meta 让用户确认并输密码
                     runCatching { container.vaultArchive.peekMeta(bytes.inputStream()) }
                         .onSuccess { meta -> archiveImportMeta = meta; archiveImportBytes = bytes }
-                        .onFailure { error = "不是有效的 .fvault 归档" }
+                        .onFailure { e -> error = e.message ?: "不是有效的 .fvault 归档" }
                 }
             }
         }
@@ -180,6 +233,27 @@ fun LockedHomeScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { overflowMenu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                        }
+                        DropdownMenu(expanded = overflowMenu, onDismissRequest = { overflowMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("导入 .fvault 归档") },
+                                onClick = {
+                                    overflowMenu = false
+                                    archiveImportLauncher.launch(arrayOf("*/*"))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("紧急销毁所有库", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { Icon(Icons.Filled.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = { overflowMenu = false; panicConfirm = true },
+                            )
+                        }
                     }
                 },
             )
@@ -209,40 +283,44 @@ fun LockedHomeScreen(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 )
             }
-            if (vaults.isEmpty()) {
-                EmptyState(
-                    title = "还没有保险库",
-                    subtitle = "点右下角 + 新建一个;也可长按此处导入口令(用 .fvault 归档恢复)",
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = { archiveImportLauncher.launch(arrayOf("*/*")) },
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 32.dp),
-                ) { Text("导入 .fvault 归档") }
-            } else {
-                LazyColumn(Modifier.weight(1f)) {
-                    items(vaults, key = { it.vaultId }) { meta ->
-                        VaultCard(
-                            meta = meta,
-                            entryCount = container.vaultManager.loadPlainIndex(meta.vaultId)?.entries?.count { !it.isFolder },
-                            hasBio = container.vaultManager.readBioWrap(meta.vaultId) != null,
-                            onClick = {
-                                if (container.session.isUnlocked(meta.vaultId)) {
-                                    onOpenVault(meta.vaultId)
-                                } else if (container.vaultManager.readBioWrap(meta.vaultId) != null) {
-                                    biometricUnlock(meta)
-                                } else {
-                                    unlockTarget = meta
-                                }
-                            },
-                            onLongClick = { menuTarget = meta },
-                        )
+            val list = vaults
+            when {
+                list == null -> {
+                    // 冷启动加载态:避免闪"空态"错觉
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth().padding(48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator()
                     }
                 }
-                TextButton(
-                    onClick = { archiveImportLauncher.launch(arrayOf("*/*")) },
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(8.dp),
-                ) { Text("导入 .fvault 归档") }
+                list.isEmpty() -> {
+                    EmptyState(
+                        title = "还没有保险库",
+                        subtitle = "点右下角 + 新建一个;也可从菜单导入 .fvault 归档恢复",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                else -> {
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(list, key = { it.meta.vaultId }) { info ->
+                            VaultCard(
+                                info = info,
+                                onClick = {
+                                    if (container.session.isUnlocked(info.meta.vaultId)) {
+                                        onOpenVault(info.meta.vaultId)
+                                    } else if (info.hasBio) {
+                                        biometricUnlock(info.meta)
+                                    } else {
+                                        unlockTarget = info.meta
+                                    }
+                                },
+                                onLongClick = { menuTarget = info.meta },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -286,12 +364,14 @@ fun LockedHomeScreen(
                 scope.launch {
                     runCatching {
                         withContext(Dispatchers.IO) {
-                            container.vaultManager.unlock(meta.vaultId, password.toCharArray())
+                            // rewrapParams=DEFAULT:老库的弱 KDF 参数在解锁时透明升级(只升不降)
+                            container.vaultManager.unlock(meta.vaultId, password.toCharArray(), rewrapParams = KdfParams.DEFAULT)
                         }
                     }.onSuccess { u ->
                         unlockTarget = null
                         onUnlocked(u)
                     }.onFailure { e ->
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         reportError(if (e is WrongPasswordException) "密码错误" else "解锁失败:${e.message}")
                     }
                 }
@@ -355,7 +435,7 @@ fun LockedHomeScreen(
                 TextButton(onClick = {
                     val bytes = archiveImportBytes ?: return@TextButton
                     scope.launch {
-                        busy = "导入中…"
+                        busy = "导入中…(逐文件校验 SHA-256)"
                         runCatching {
                             withContext(Dispatchers.IO) {
                                 container.vaultArchive.importVault(bytes.inputStream(), pw.toCharArray())
@@ -365,7 +445,7 @@ fun LockedHomeScreen(
                             archiveImportBytes = null
                             refresh()
                         }.onFailure { e ->
-                            pwError = if (e is WrongPasswordException) "密码错误" else "导入失败:${e.message}"
+                            pwError = if (e is WrongPasswordException) "密码错误" else e.message
                         }
                         busy = null
                     }
@@ -412,20 +492,71 @@ fun LockedHomeScreen(
             onDismiss = { deleteTarget = null },
         )
     }
+
+    // ---------- 紧急销毁 ----------
+    if (panicConfirm) {
+        var confirmText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { panicConfirm = false },
+            title = { Text("紧急销毁所有库?", color = MaterialTheme.colorScheme.error) },
+            text = {
+                Column(Modifier.imePadding()) {
+                    Text(
+                        "将永久删除全部 ${vaults?.size ?: 0} 个保险库及临时空间内容,无法恢复。" +
+                            "(说明:闪存磨损均衡下,快速删除不能保证每个物理块都被回收——这是所有同类工具的边界。)",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = confirmText,
+                        onValueChange = { confirmText = it },
+                        label = { Text("输入「销毁」确认") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = confirmText == "销毁",
+                    onClick = {
+                        panicConfirm = false
+                        scope.launch {
+                            busy = "销毁中…"
+                            withContext(Dispatchers.IO) { container.panicWipe() }
+                            busy = null
+                            refresh()
+                        }
+                    },
+                ) { Text("立即销毁", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { panicConfirm = false }) { Text("取消") } },
+        )
+    }
 }
 
 /** 别名占位:KeyInvalidatedException 引用。 */
 private typealias BiometricKeystore_KeyInvalidated = io.vaultx.app.core.security.BiometricKeystore.KeyInvalidatedException
 
+/** 卡片展示所需的快照:meta + 条目数 + 磁盘占用 + 是否已配生物识别。 */
+private data class VaultCardInfo(
+    val meta: VaultMeta,
+    val entryCount: Int?,
+    val usageBytes: Long?,
+    val hasBio: Boolean,
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VaultCard(
-    meta: VaultMeta,
-    entryCount: Int?,
-    hasBio: Boolean,
+    info: VaultCardInfo,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val meta = info.meta
+    val entryCount = info.entryCount
+    val usageBytes = info.usageBytes
+    val hasBio = info.hasBio
     val interactionSource = remember { MutableInteractionSource() }
     val fmt = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     Card(
@@ -454,7 +585,8 @@ private fun VaultCard(
                     buildString {
                         append(fmt.format(Date(meta.createdAt)))
                         if (entryCount != null) append(" · $entryCount 项")
-                        if (meta.hasDecoy) append(" · 诱骗")
+                        if (usageBytes != null) append(" · ${formatBytes(usageBytes)}")
+                        // 不显示"诱骗"标记:胁迫者打开 App 一眼看到它就前功尽弃
                         if (meta.masterGate) append(" · 总密码")
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -483,7 +615,7 @@ private fun SheetItem(text: String, danger: Boolean = false, onClick: () -> Unit
     }
 }
 
-/** 建库对话框:名称 + 密码 + 确认 + 高强度档 + 总密码开关。 */
+/** 建库对话框:名称 + 密码(带强度条) + 确认 + 高强度档 + 总密码开关。 */
 @Composable
 private fun CreateVaultDialog(
     onDismiss: () -> Unit,
@@ -504,12 +636,31 @@ private fun CreateVaultDialog(
                 OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true)
                 Spacer(Modifier.height(8.dp))
                 PasswordField(pw, { pw = it; err = null }, "密码", imeAction = ImeAction.Next)
+                if (pw.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    val score = PasswordStrength.score(pw)
+                    LinearProgressIndicator(
+                        progress = { score / 4f },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = when (score) {
+                            1 -> MaterialTheme.colorScheme.error
+                            2 -> MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "密码强度:${PasswordStrength.label(pw)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 PasswordField(pw2, { pw2 = it; err = null }, "确认密码", isError = err != null, supportingText = err)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Checkbox(checked = highSec, onCheckedChange = { highSec = it })
-                    Text("高强度模式(Argon2id 64MiB,解锁更慢)")
+                    Text("高强度密码派生(Argon2id 64MiB,解锁更慢)")
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Checkbox(checked = masterGate, onCheckedChange = { masterGate = it })

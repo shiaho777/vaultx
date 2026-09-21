@@ -125,6 +125,11 @@ class SafTransfer(private val context: Context) {
 
         private val dirCache = HashMap<String, Uri>()
 
+        /** 空文件夹导出:按相对路径建目录(复用同一逐级逻辑)。 */
+        override fun ensureDir(relPath: String) {
+            ensureDir(relPath.split('/'))
+        }
+
         override fun create(relPath: String, mimeType: String?): TransferEngine.ExportSink {
             val parts = relPath.split('/')
             val fileName = parts.last()

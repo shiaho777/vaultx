@@ -70,6 +70,23 @@ class AppContainer(private val context: Context) {
         }
     }
 
+    /**
+     * 紧急销毁:锁定全部会话(VMK 清零 + 索引缓存丢弃 + 图片缓存清空,
+     * 经 session.lockAll → onLocked 链) → 删各库 Keystore 密钥 → 抹掉全部库
+     * 目录与 .pending 残留 → 焚毁无锁模式临时文件。
+     * 不可逆;闪存 wear-leveling 的物理边界见 SECURITY.md。
+     */
+    fun panicWipe() {
+        runCatching { session.lockAll() }
+        // lockAll 在无活跃会话时短路不发回调,图片缓存这里兜底再清一次
+        runCatching { clearImageMemoryCache() }
+        runCatching {
+            vaultManager.listVaults().forEach { runCatching { biometrics.deleteKey(it.vaultId) } }
+        }
+        runCatching { vaultManager.wipeAll() }
+        runCatching { sessionManager.destroy() }
+    }
+
     private fun watchAutoLock() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) {

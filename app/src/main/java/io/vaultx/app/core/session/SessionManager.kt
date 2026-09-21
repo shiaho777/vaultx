@@ -8,6 +8,7 @@ import io.vaultx.app.core.vault.MediaKind
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.RandomAccessFile
 
 /**
  * 无锁模式的临时空间——纯文件操作,纯 JVM 可测。
@@ -15,6 +16,9 @@ import java.io.OutputStream
  * 会话文件落在 `cacheDir/sessions/` 下,退出即焚(SessionViewModel 退出时
  * [destroy];进程死亡的残骸由 AppContainer 冷启动清扫)。
  * 文件名即显示名,重名按 "name (2).ext" 消解——不引入显示名/存储名分离的坑。
+ *
+ * 删除语义:先整文件覆写零字节 + fsync 再 unlink,挡住逻辑层的文件恢复/雕琢;
+ * 闪存磨损均衡导致的物理残留边界在 SECURITY.md 如实说明。
  */
 class SessionManager(private val cacheDir: File) {
 
@@ -48,7 +52,12 @@ class SessionManager(private val cacheDir: File) {
     fun importFile(name: String, input: InputStream): SessionFile {
         val finalName = uniqueName(name)
         val target = File(sessionDir().apply { mkdirs() }, finalName)
-        target.outputStream().use { out -> input.copyTo(out) }
+        try {
+            target.outputStream().use { out -> input.copyTo(out) }
+        } catch (e: Throwable) {
+            secureDelete(target)
+            throw e
+        }
         return SessionFile(finalName, target.length(), kindOf(finalName))
     }
 
@@ -63,7 +72,7 @@ class SessionManager(private val cacheDir: File) {
     }
 
     fun delete(storedName: String) {
-        file(storedName).delete()
+        secureDelete(file(storedName))
     }
 
     /**
@@ -89,18 +98,42 @@ class SessionManager(private val cacheDir: File) {
         try {
             target.outputStream().use { out -> PortableCipher.decryptTo(password, input, out) }
         } catch (e: Exception) {
-            target.delete()
+            secureDelete(target)
             throw e
         }
         return SessionFile(finalName, target.length(), kindOf(finalName))
     }
 
-    /** 会话即焚:清空全部临时文件。 */
+    /** 会话即焚:逐文件覆写后清空全部临时文件。 */
     fun destroy() {
+        sessionDir().listFiles()?.forEach { secureDelete(it) }
         sessionDir().deleteRecursively()
     }
 
     fun hasFiles(): Boolean = sessionDir().listFiles()?.any { it.isFile } == true
+
+    /**
+     * 覆写后删除:先整文件写零再 unlink。
+     * "rws" 模式让每次写都同步落到存储介质,不只是留在页缓存里。
+     */
+    private fun secureDelete(f: File) {
+        if (f.isFile) {
+            runCatching {
+                var remaining = f.length()
+                if (remaining > 0) {
+                    RandomAccessFile(f, "rws").use { raf ->
+                        val zeros = ByteArray(64 * 1024)
+                        while (remaining > 0) {
+                            val n = minOf(zeros.size.toLong(), remaining).toInt()
+                            raf.write(zeros, 0, n)
+                            remaining -= n
+                        }
+                    }
+                }
+            }
+        }
+        f.deleteRecursively()
+    }
 
     /** "name (2).ext" 消解,与库里同一约定。 */
     private fun uniqueName(name: String): String {

@@ -312,6 +312,16 @@ class VaultManager(private val rootDir: File) {
         }
     }
 
+    /**
+     * 紧急销毁:抹掉全部库目录与 .pending 导入残留,索引缓存全清。
+     * 调用方必须先锁定全部会话(本方法不清零内存中的 VMK)。
+     */
+    fun wipeAll() {
+        synchronized(cacheLock) { indexCache.clear() }
+        vaultsRoot().deleteRecursively()
+        vaultsRoot().mkdirs()
+    }
+
     fun vaultExists(vaultId: String): Boolean = metaFile(vaultId).isFile
 
     /** 库在磁盘上的总占用(bytes,含索引/meta/加密 blob/缩略图),供 UI 展示。 */
@@ -358,7 +368,7 @@ class VaultManager(private val rootDir: File) {
         writeAtomic(metaFile(vaultId), newMeta.toJson().toByteArray(Charsets.UTF_8))
         unlocked.meta = newMeta
         if (enabled) plain.delete() else enc.delete()
-        synchronized(cacheLock) { indexCache[vaultId] = index }
+        synchronized(cacheLock) { indexCache[vaultId] = index.snapshot() }
     }
 
     // ---------------- 诱骗库 ----------------

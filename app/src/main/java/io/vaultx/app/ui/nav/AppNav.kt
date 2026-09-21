@@ -107,13 +107,22 @@ fun AppNav(container: AppContainer, modifier: Modifier = Modifier) {
                 )
             }
             entry<Route.ImageViewer> { key ->
-                ImageViewerScreen(container = container, vaultId = key.vaultId, entryId = key.entryId)
+                ImageViewerScreen(
+                    container = container, vaultId = key.vaultId, entryId = key.entryId,
+                    onBack = { backStack.removeLastOrNull() },
+                )
             }
             entry<Route.VideoPlayer> { key ->
-                VideoPlayerScreen(container = container, vaultId = key.vaultId, entryId = key.entryId)
+                VideoPlayerScreen(
+                    container = container, vaultId = key.vaultId, entryId = key.entryId,
+                    onBack = { backStack.removeLastOrNull() },
+                )
             }
             entry<Route.AudioPlayer> { key ->
-                AudioPlayerScreen(container = container, vaultId = key.vaultId, entryId = key.entryId)
+                AudioPlayerScreen(
+                    container = container, vaultId = key.vaultId, entryId = key.entryId,
+                    onBack = { backStack.removeLastOrNull() },
+                )
             }
             entry<Route.SessionHome> {
                 SessionHomeScreen(
@@ -123,7 +132,10 @@ fun AppNav(container: AppContainer, modifier: Modifier = Modifier) {
                 )
             }
             entry<Route.SessionPlayer> { key ->
-                SessionPlayerScreen(container = container, storedName = key.storedName)
+                SessionPlayerScreen(
+                    container = container, storedName = key.storedName,
+                    onBack = { backStack.removeLastOrNull() },
+                )
             }
         },
     )

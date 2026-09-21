@@ -81,8 +81,8 @@ fun SessionHomeScreen(
     var renameFor by remember { mutableStateOf<SessionFile?>(null) }
     var deleteFor by remember { mutableStateOf<SessionFile?>(null) }
     var exitConfirm by remember { mutableStateOf(false) }
-    // .vlt 相关
-    var vltPasswordFor by remember { mutableStateOf<android.net.Uri?>(null) }
+    // .vlt 相关(多个 .vlt 排队逐个输密码)
+    var vltQueue by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var vltExportFor by remember { mutableStateOf<SessionFile?>(null) }
     var plainExportFor by remember { mutableStateOf<SessionFile?>(null) }
     var pendingExportUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -91,11 +91,11 @@ fun SessionHomeScreen(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        // .vlt 文件需要密码;其他直接进临时空间
-        val vlt = uris.firstOrNull { it.lastPathSegment?.endsWith(".vlt") == true }
-        val plain = uris.filter { it.lastPathSegment?.endsWith(".vlt") != true }
-        if (plain.isNotEmpty()) vm.import(plain.map { container.safTransfer.fileSource(it) })
-        if (vlt != null) vltPasswordFor = vlt
+        // .vlt 文件需要密码,排队逐个处理;其他直接进临时空间
+        val sources = uris.map { it to container.safTransfer.fileSource(it) }
+        val (vlt, plain) = sources.partition { it.second.name.endsWith(".vlt", ignoreCase = true) }
+        if (plain.isNotEmpty()) vm.import(plain.map { it.second })
+        if (vlt.isNotEmpty()) vltQueue = vltQueue + vlt.map { it.first }
     }
 
     val vltExportLauncher = rememberLauncherForActivityResult(
@@ -208,34 +208,43 @@ fun SessionHomeScreen(
         }
     }
 
-    // ---------- .vlt 导入密码 ----------
-    vltPasswordFor?.let { uri ->
+    // ---------- .vlt 导入密码(队列逐个处理) ----------
+    vltQueue.firstOrNull()?.let { uri ->
         var pw by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
         AlertDialog(
-            onDismissRequest = { vltPasswordFor = null },
+            onDismissRequest = { vltQueue = vltQueue.drop(1) },
             title = { Text("打开 .vlt") },
             text = {
                 Column(Modifier.imePadding()) {
-                    Text("输入该文件的密码")
+                    Text("输入「${uri.lastPathSegment?.substringAfterLast('/') ?: "该文件"}」的密码")
                     Spacer(Modifier.height(8.dp))
                     PasswordField(pw, { pw = it; err = null }, "密码", isError = err != null, supportingText = err)
+                    if (vltQueue.size > 1) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "还有 ${vltQueue.size - 1} 个 .vlt 待处理",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     vm.importVlt(container.safTransfer.fileSource(uri), pw.toCharArray()) { ok ->
-                        if (ok) vltPasswordFor = null else err = "密码错误或文件损坏"
+                        if (ok) vltQueue = vltQueue.drop(1) else err = "密码错误或文件损坏"
                     }
                 }) { Text("打开") }
             },
-            dismissButton = { TextButton(onClick = { vltPasswordFor = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { vltQueue = vltQueue.drop(1) }) { Text("跳过") } },
         )
     }
 
     // ---------- .vlt 导出(密码 → 文件选择器) ----------
     vltExportFor?.let { f ->
         var pw by remember { mutableStateOf("") }
+        var pw2 by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { vltExportFor = null },
@@ -245,14 +254,16 @@ fun SessionHomeScreen(
                     Text("设一个一次性密码;接收方用它解密,无需此应用账号")
                     Spacer(Modifier.height(8.dp))
                     PasswordField(pw, { pw = it; err = null }, "密码", isError = err != null, supportingText = err)
+                    Spacer(Modifier.height(8.dp))
+                    PasswordField(pw2, { pw2 = it; err = null }, "确认密码")
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (pw.isEmpty()) {
-                        err = "密码不能为空"
-                    } else {
-                        vltExportLauncher.launch("${f.storedName}.vlt")
+                    when {
+                        pw.isEmpty() -> err = "密码不能为空"
+                        pw != pw2 -> err = "两次输入不一致"
+                        else -> vltExportLauncher.launch("${f.storedName}.vlt")
                     }
                 }) { Text("选择保存位置") }
             },

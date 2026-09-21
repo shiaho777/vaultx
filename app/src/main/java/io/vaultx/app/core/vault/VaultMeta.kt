@@ -52,7 +52,7 @@ data class VaultMeta(
     fun saltDecoyBytes(): ByteArray? = saltDecoy?.let { Base64.getDecoder().decode(it) }
     fun wrappedVmkDecoyBytes(): ByteArray? = wrappedVmkDecoy?.let { Base64.getDecoder().decode(it) }
 
-    fun toJson(): String = Json { ignoreUnknownKeys = true }.encodeToString(serializer(), this)
+    fun toJson(): String = json.encodeToString(serializer(), this)
 
     companion object {
         const val FILE_NAME = "meta.vault"

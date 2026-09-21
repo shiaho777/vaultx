@@ -78,10 +78,14 @@ class TransferEngineTest {
     private class MemSinkFactory : TransferEngine.ExportSinkFactory {
         val files = LinkedHashMap<String, ByteArray>()
         val sinks = mutableListOf<MemSink>()
+        val dirs = mutableListOf<String>()
         var failOn: String? = null
         override fun create(relPath: String, mimeType: String?): TransferEngine.ExportSink {
             if (relPath == failOn) throw java.io.IOException("injected create failure")
             return MemSink(relPath, files).also { sinks += it }
+        }
+        override fun ensureDir(relPath: String) {
+            dirs += relPath
         }
     }
 
@@ -151,6 +155,31 @@ class TransferEngineTest {
         assertTrue(index.entries.isEmpty())
         val blobs = File(manager.vaultDir(unlocked.vaultId), VaultManager.BLOBS_DIR)
         assertEquals(0, blobs.walkTopDown().count { it.isFile })
+    }
+
+    @Test
+    fun importCancelKeepsCompletedEntries() {
+        val index = VaultIndex()
+        var done = 0
+        var checkpoints = 0
+        try {
+            engine.import(
+                unlocked,
+                listOf(MemFile("a.txt", "1".toByteArray()), MemFile("b.txt", "2".toByteArray())),
+                null,
+                index,
+                isCancelled = { done >= 1 },
+                onProgress = { d, _ -> done = d },
+                onCheckpoint = { checkpoints++ },
+            )
+            fail("expected cancel")
+        } catch (e: TransferEngine.TransferCancelledException) {
+            assertEquals(1, e.completed)
+        }
+        // 已完成的条目不随取消回滚:blob 在、索引条目在,终存检查点已触发
+        assertEquals(1, index.entries.size)
+        assertTrue(manager.blobExists(unlocked.vaultId, index.entries[0].blobId!!))
+        assertTrue(checkpoints >= 1)
     }
 
     @Test
@@ -234,5 +263,30 @@ class TransferEngineTest {
         val res = engine.exportEntries(unlocked, index.entries.toList(), index, factory)
         assertEquals(0, res.exported)
         assertEquals(0, res.failed)
+    }
+
+    @Test
+    fun exportEmptyFolderCreatesDirectory() {
+        val index = VaultIndex()
+        index.addEntry("emptydir", MediaKind.FOLDER)
+        index.addEntry("nested", MediaKind.FOLDER, parentId = index.entries[0].id)
+        val factory = MemSinkFactory()
+        engine.exportEntries(unlocked, index.entries.toList(), index, factory)
+        // 空文件夹也落地为目录,目录结构不丢
+        assertEquals(listOf("emptydir", "emptydir/nested"), factory.dirs)
+    }
+
+    @Test
+    fun exportReportsProgress() {
+        val index = VaultIndex()
+        engine.import(unlocked, listOf(MemFile("a.txt", "1".toByteArray())), null, index)
+        val seen = mutableListOf<Pair<Int, Int>>()
+        engine.exportEntries(
+            unlocked, index.entries.toList(), index, MemSinkFactory(),
+            onProgress = { d, t -> seen += d to t },
+        )
+        assertTrue(seen.isNotEmpty())
+        assertEquals(1, seen.last().second)
+        assertEquals(1, seen.last().first)
     }
 }

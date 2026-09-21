@@ -73,7 +73,8 @@ fun VaultSettingsScreen(
     val viaDecoy = unlocked?.viaDecoy == true
     val bioEnabled = container.vaultManager.readBioWrap(vaultId) != null
     val bioAvailable = container.biometrics.isAvailable(context)
-    val diskUsage = remember(meta) { container.vaultManager.vaultDiskUsage(vaultId) }
+    // 诱骗库与真库共用磁盘目录:有诱骗时不显示物理占用(否则会向诱骗会话泄露隐藏体量)
+    val diskUsage = remember(meta) { if (meta.hasDecoy) null else container.vaultManager.vaultDiskUsage(vaultId) }
 
     fun refreshMeta() {
         meta = container.vaultManager.metaOf(vaultId)
@@ -102,11 +103,9 @@ fun VaultSettingsScreen(
 
             // 基本信息
             SettingRow("库名称", meta.name)
-            SettingRow("磁盘占用", formatBytes(diskUsage))
+            diskUsage?.let { SettingRow("磁盘占用", formatBytes(it)) }
             SettingRow("KDF 强度", "Argon2id ${meta.kdfParams.memoryKiB / 1024}MiB × ${meta.kdfParams.iterations}")
-            if (viaDecoy) {
-                SettingRow("当前会话", "诱骗库", tint = MaterialTheme.colorScheme.tertiary)
-            }
+            // 诱骗会话中不显示任何"你在假库"的标记——界面与真库完全一致才有意义
 
             busy?.let {
                 Spacer(Modifier.height(8.dp))

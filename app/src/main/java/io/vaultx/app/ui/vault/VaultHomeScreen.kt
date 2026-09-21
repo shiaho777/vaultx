@@ -16,16 +16,20 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
@@ -34,6 +38,7 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Output
@@ -61,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,9 +74,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import io.vaultx.app.AppContainer
@@ -104,7 +113,9 @@ fun VaultHomeScreen(
     val sortBy by vm.sortBy.collectAsState()
     val transfer by vm.transfer.collectAsState()
     val error by vm.error.collectAsState()
+    val notice by vm.notice.collectAsState()
 
+    val searchFocus = remember { FocusRequester() }
     var searching by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var importMenu by remember { mutableStateOf(false) }
@@ -114,6 +125,7 @@ fun VaultHomeScreen(
     var moveDialog by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Set<String>?>(null) }
+    var textPreview by remember { mutableStateOf<VaultEntry?>(null) }
 
     val entries = vm.visibleEntries()
     val meta = remember(index) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
@@ -137,13 +149,19 @@ fun VaultHomeScreen(
         val ids = pendingExport
         pendingExport = null
         if (uri != null && ids != null) {
-            vm.exportEntries(ids, container.safTransfer.exportSinkFactory(uri)) { ok, failed ->
-                vm.refresh()
-                if (failed > 0) {
-                    // 失败详情由 VM 的 error 通道提示(此处只给数量)
-                }
-            }
+            vm.exportEntries(ids, container.safTransfer.exportSinkFactory(uri))
         }
+    }
+
+    // 提示条自动消退
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            delay(4000)
+            vm.clearNotice()
+        }
+    }
+    LaunchedEffect(searching) {
+        if (searching) searchFocus.requestFocus()
     }
 
     BackHandler(enabled = folderStack.isNotEmpty() || selection.isNotEmpty()) {
@@ -170,17 +188,33 @@ fun VaultHomeScreen(
                             onValueChange = { vm.setQuery(it) },
                             placeholder = { Text("搜索文件名") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
                         )
                     } else {
                         Column {
                             Text(meta?.name ?: "保险库", style = MaterialTheme.typography.titleMedium)
                             if (folderStack.isNotEmpty()) {
-                                Text(
-                                    "根目录 / " + folderStack.joinToString(" / ") { it.name },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                // 可点面包屑:任意段直接跳回
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "根目录",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable { vm.jumpToBreadcrumb(-1) },
+                                    )
+                                    folderStack.forEachIndexed { i, f ->
+                                        Text(
+                                            " / ${f.name}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (i == folderStack.lastIndex) {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            } else {
+                                                MaterialTheme.colorScheme.primary
+                                            },
+                                            modifier = Modifier.clickable { vm.jumpToBreadcrumb(i) },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -193,7 +227,7 @@ fun VaultHomeScreen(
                         Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = "搜索")
                     }
                     IconButton(onClick = { sortMenu = true }) {
-                        Icon(Icons.Filled.Sort, contentDescription = "排序")
+                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
                     }
                     DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                         SortBy.entries.forEach { s ->
@@ -203,6 +237,9 @@ fun VaultHomeScreen(
                                 trailingIcon = { if (s == sortBy) Icon(Icons.Filled.Check, null) },
                             )
                         }
+                    }
+                    IconButton(onClick = { vm.lockNow() }) {
+                        Icon(Icons.Filled.Lock, contentDescription = "立即锁定")
                     }
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "库设置")
@@ -260,6 +297,14 @@ fun VaultHomeScreen(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                     )
                 }
+                notice?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
+                }
                 if (entries.isEmpty()) {
                     EmptyState(
                         title = if (query.isNotBlank()) "没有匹配的文件" else "这里是空的",
@@ -286,6 +331,11 @@ fun VaultHomeScreen(
                                         vm.toggleSelect(entry.id)
                                     } else if (entry.isFolder) {
                                         vm.openFolder(entry)
+                                    } else if (isTextEntry(entry)) {
+                                        textPreview = entry
+                                    } else if (entry.kind == MediaKind.OTHER) {
+                                        // 无内建预览的类型:直接给操作菜单而不是死路
+                                        overflowFor = entry
                                     } else {
                                         onOpenEntry(entry)
                                     }
@@ -304,6 +354,12 @@ fun VaultHomeScreen(
                     expanded = true,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
                 ) {
+                    Text(
+                        "${selection.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+                    )
                     IconButton(onClick = { vm.selectAll() }) {
                         Icon(Icons.Filled.SelectAll, contentDescription = "全选")
                     }
@@ -330,6 +386,12 @@ fun VaultHomeScreen(
     // ---------- 条目溢出菜单 ----------
     overflowFor?.let { entry ->
         DropdownMenu(expanded = true, onDismissRequest = { overflowFor = null }) {
+            if (isTextEntry(entry)) {
+                DropdownMenuItem(
+                    text = { Text("预览") },
+                    onClick = { textPreview = entry; overflowFor = null },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("重命名") },
                 onClick = { renameTarget = entry; overflowFor = null },
@@ -399,20 +461,68 @@ fun VaultHomeScreen(
 
     // ---------- 移动目标选择 ----------
     if (moveDialog) {
-        val folders = (index?.entries ?: emptyList()).filter { it.isFolder && it.id !in selection }
+        val idx = index
+        // 全路径标签:嵌套同名文件夹不再歧义;同时排除被选项的子孙(防环由 VM 兜底)
+        val excluded = remember(selection, idx) {
+            if (idx == null) selection
+            else selection + selection.flatMap { idx.descendantIds(it) }
+        }
+        val folders = (idx?.entries ?: emptyList())
+            .filter { it.isFolder && it.id !in excluded }
+            .map { it to folderPathOf(it, idx) }
+            .sortedBy { it.second }
         AlertDialog(
             onDismissRequest = { moveDialog = false },
             title = { Text("移动到") },
             text = {
-                Column(Modifier.height(280.dp)) {
+                Column(Modifier.height(280.dp).verticalScroll(rememberScrollState())) {
                     MoveTargetRow("根目录", onClick = { vm.moveEntries(selection, null); moveDialog = false })
-                    folders.forEach { f ->
-                        MoveTargetRow(f.name, onClick = { vm.moveEntries(selection, f.id); moveDialog = false })
+                    folders.forEach { (f, path) ->
+                        MoveTargetRow(path, onClick = { vm.moveEntries(selection, f.id); moveDialog = false })
                     }
                 }
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { moveDialog = false }) { Text("取消") } },
+        )
+    }
+
+    // ---------- 文本预览 ----------
+    textPreview?.let { entry ->
+        var content by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(entry.id) {
+            content = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val u = container.session.get(vaultId) ?: return@runCatching null
+                    container.vaultManager.openBlobStream(u, entry.blobId!!).use {
+                        String(it.readBytes(), Charsets.UTF_8)
+                    }
+                }.getOrNull()
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { textPreview = null },
+            title = { Text(entry.name, style = MaterialTheme.typography.titleSmall) },
+            text = {
+                if (content == null) {
+                    Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator()
+                    }
+                } else {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            content!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 420.dp)
+                                .verticalScroll(rememberScrollState()),
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { textPreview = null }) { Text("关闭") } },
         )
     }
 
@@ -427,6 +537,21 @@ fun VaultHomeScreen(
             onDismiss = { deleteConfirm = false },
         )
     }
+}
+
+/** 文件夹的全路径标签(移动对话框用):"a / b / c"。 */
+private fun folderPathOf(
+    entry: VaultEntry,
+    index: io.vaultx.app.core.vault.VaultIndex?,
+): String {
+    val parts = mutableListOf(entry.name)
+    var cur = entry.parentId
+    while (cur != null) {
+        val p = index?.find(cur) ?: break
+        parts.add(0, p.name)
+        cur = p.parentId
+    }
+    return parts.joinToString(" / ")
 }
 
 @Composable
@@ -545,3 +670,14 @@ private fun iconFor(kind: MediaKind) = when (kind) {
     MediaKind.FOLDER -> Icons.Filled.Folder
     MediaKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
+
+private val TEXT_EXTS = setOf(
+    "txt", "md", "log", "json", "xml", "csv", "yaml", "yml", "ini", "conf",
+    "html", "htm", "kt", "java", "py", "js", "ts", "c", "cpp", "h", "sh",
+)
+
+/** 可内联预览的文本类条目:OTHER 类型 + 文本扩展名 + ≤512KB(防大文件卡 UI)。 */
+private fun isTextEntry(e: VaultEntry): Boolean =
+    !e.isFolder && e.kind == MediaKind.OTHER &&
+        e.name.substringAfterLast('.', "").lowercase() in TEXT_EXTS &&
+        e.sizeBytes in 0..(512 * 1024)

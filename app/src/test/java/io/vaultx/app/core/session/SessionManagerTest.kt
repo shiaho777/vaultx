@@ -109,4 +109,21 @@ class SessionManagerTest {
         assertFalse(session.hasFiles())
         assertTrue(session.listFiles().isEmpty())
     }
+
+    @Test
+    fun deleteRemovesFilePhysically() {
+        // 覆写后删除:文件物理消失(覆写过程本身不可直接断言,但删除路径必须完整走完)
+        val f = session.importFile("gone.bin", ByteArrayInputStream(ByteArray(200_000) { 7 }))
+        session.delete(f.storedName)
+        assertFalse(session.file(f.storedName).exists())
+        assertTrue(session.listFiles().isEmpty())
+    }
+
+    @Test
+    fun destroyOverwritesAllResidue() {
+        session.importFile("x.bin", ByteArrayInputStream(ByteArray(50_000) { 1 }))
+        session.importFile("y.bin", ByteArrayInputStream(ByteArray(50_000) { 2 }))
+        session.destroy()
+        assertFalse(java.io.File(tmp.root, SessionManager.SESSIONS_DIR).exists())
+    }
 }

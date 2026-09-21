@@ -1,7 +1,9 @@
 package io.vaultx.app.core.transfer
 
+import io.vaultx.app.core.crypto.VaultCrypto
 import io.vaultx.app.core.vault.MediaKind
 import io.vaultx.app.core.vault.UnlockedVault
+import io.vaultx.app.core.vault.VaultEntry
 import io.vaultx.app.core.vault.VaultIndex
 import io.vaultx.app.core.vault.VaultManager
 import java.io.InputStream
@@ -12,8 +14,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 导入/导出核心——纯 JVM,不碰 SAF(那是 [SafTransfer] 的事)。
  *
  * 导入管线:源 → 加密写入 blobs/<blobId> → 追加索引条目。
- * 取消是协作式:每个分块边界查 [isCancelled];命中或出错即清掉半截 blob 与本次已建 blob。
- * 传输未结束前拒绝重复启动([active] 标志)。
+ * - 进度回调 50ms 节流(海量小文件下不至于引发 UI 重组风暴;收尾必达)
+ * - [onCheckpoint] 每 1.5s 把当前索引持久化一次;取消/出错时终存一次——
+ *   已完成条目不因取消回滚(blob 先于索引条目落盘,检查点永远落在一致态)
+ * - 取消是协作式:每个分块边界查 [isCancelled];在写的那半截 blob 由单文件 catch 清理
+ * - 传输未结束前拒绝重复启动([active] 标志)
  */
 class TransferEngine(private val vaultManager: VaultManager) {
 
@@ -37,6 +42,8 @@ class TransferEngine(private val vaultManager: VaultManager) {
     /** 导出目的端工厂:按相对路径+mime 建 sink。 */
     interface ExportSinkFactory {
         fun create(relPath: String, mimeType: String?): ExportSink
+        /** 为空文件夹建目录(默认空实现;SAF 端逐级建目录)。 */
+        fun ensureDir(relPath: String) {}
     }
 
     interface ExportSink {
@@ -57,14 +64,14 @@ class TransferEngine(private val vaultManager: VaultManager) {
         val failed: Int get() = failedNames.size
     }
 
-    class TransferCancelledException : Exception()
+    class TransferCancelledException(val completed: Int = 0) : Exception()
 
     // ---------------- 导入 ----------------
 
     /**
-     * 把 sources 导入 index 的 [parentId] 之下(原地改 index;持久化由调用方做)。
-     * 重名自动 "(2)";目录源递归;[isCancelled] 命中即回滚本次已建 blob 并抛
-     * [TransferCancelledException]。
+     * 把 sources 导入 index 的 [parentId] 之下(原地改 index)。
+     * 重名自动 "(2)";目录源递归;[isCancelled] 命中即抛 [TransferCancelledException]
+     * (携带已完成数);[onCheckpoint] 供调用方周期性把 index 落盘。
      */
     fun import(
         unlocked: UnlockedVault,
@@ -73,22 +80,33 @@ class TransferEngine(private val vaultManager: VaultManager) {
         index: VaultIndex,
         isCancelled: () -> Boolean = { false },
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onCheckpoint: (VaultIndex) -> Unit = {},
     ): ImportResult {
         check(activeFlag.compareAndSet(false, true)) { "transfer already active" }
-        val createdBlobs = mutableListOf<String>()
+        val total = sources.sumOf { countFiles(it) }
+        val throttle = Throttle()
+        var done = 0
+        var imported = 0
+        var lastCheckpoint = System.nanoTime()
         try {
-            var done = 0
-            val total = sources.sumOf { countFiles(it) }
-            var imported = 0
             for (src in sources) {
-                imported += importOne(unlocked, src, parentId, index, createdBlobs, isCancelled, { d -> onProgress(done + d, total) }).also { done += it }
+                imported += importOne(unlocked, src, parentId, index, isCancelled) {
+                    done++
+                    throttle.emit(done, total, onProgress)
+                    val now = System.nanoTime()
+                    if (now - lastCheckpoint >= CHECKPOINT_NS) {
+                        lastCheckpoint = now
+                        onCheckpoint(index)
+                    }
+                }
             }
+            onProgress(done, total)
             return ImportResult(imported = imported)
-        } catch (e: TransferCancelledException) {
-            createdBlobs.forEach { vaultManager.deleteBlob(unlocked.vaultId, it) }
-            throw e
         } catch (e: Throwable) {
-            createdBlobs.forEach { vaultManager.deleteBlob(unlocked.vaultId, it) }
+            // 终存一次:已完成的条目不丢(其 blob 均已完整落盘,索引与之一致)
+            runCatching { onCheckpoint(index) }
+            onProgress(done, total)
+            if (e is TransferCancelledException) throw TransferCancelledException(imported)
             throw e
         } finally {
             activeFlag.set(false)
@@ -104,9 +122,8 @@ class TransferEngine(private val vaultManager: VaultManager) {
         src: ImportSource,
         parentId: String?,
         index: VaultIndex,
-        createdBlobs: MutableList<String>,
         isCancelled: () -> Boolean,
-        onProgress: (doneDelta: Int) -> Unit,
+        onFileDone: () -> Unit,
     ): Int {
         if (isCancelled()) throw TransferCancelledException()
         if (src.isDirectory) {
@@ -117,7 +134,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
             )
             var n = 0
             for (child in src.children()) {
-                n += importOne(unlocked, child, folder.id, index, createdBlobs, isCancelled, onProgress)
+                n += importOne(unlocked, child, folder.id, index, isCancelled, onFileDone)
             }
             return n
         }
@@ -125,16 +142,15 @@ class TransferEngine(private val vaultManager: VaultManager) {
         val sink = vaultManager.prepareBlobSink(unlocked.vaultId, blobId)
         try {
             sink.outputStream().use { raw ->
-                unlocked.crypto.encryptingStream(raw, io.vaultx.app.core.crypto.VaultCrypto.blobAd(unlocked.vaultId, blobId)).use { enc ->
+                unlocked.crypto.encryptingStream(raw, VaultCrypto.blobAd(unlocked.vaultId, blobId)).use { enc ->
                     src.open().use { ins -> copyChecked(ins, enc, isCancelled) }
                 }
             }
         } catch (e: Throwable) {
-            // 半截密文不能留:取消/IO 错都删
+            // 半截密文不能留:取消/IO 错都删(该文件尚未进索引,删了不会悬空)
             vaultManager.deleteBlob(unlocked.vaultId, blobId)
             throw e
         }
-        createdBlobs.add(blobId)
         index.addEntry(
             name = uniqueName(src.name, index, parentId),
             kind = kindOf(src.name, src.mimeType),
@@ -144,7 +160,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
             parentId = parentId,
             mimeType = src.mimeType,
         )
-        onProgress(1)
+        onFileDone()
         return 1
     }
 
@@ -188,26 +204,39 @@ class TransferEngine(private val vaultManager: VaultManager) {
     // ---------------- 导出 ----------------
 
     /**
-     * 解密导出:逐条目解密 blob → sink。单文件失败记录名字继续整批;
-     * sink.abort() 只清本次半成品;[isCancelled] 命中即中止。
+     * 解密导出:逐条目解密 blob → sink。文件夹条目经 [ExportSinkFactory.ensureDir]
+     * 落地为空目录;单文件失败记录名字继续整批;sink.abort() 只清本次半成品;
+     * [isCancelled] 命中即中止。
      */
     fun exportEntries(
         unlocked: UnlockedVault,
-        entries: List<io.vaultx.app.core.vault.VaultEntry>,
+        entries: List<VaultEntry>,
         index: VaultIndex,
         sinkFactory: ExportSinkFactory,
         isCancelled: () -> Boolean = { false },
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): ExportResult {
         check(activeFlag.compareAndSet(false, true)) { "transfer already active" }
+        val total = entries.size
+        val throttle = Throttle()
+        var done = 0
         try {
             var exported = 0
             val failed = mutableListOf<String>()
             for (entry in entries) {
-                if (isCancelled()) throw TransferCancelledException()
-                if (entry.isFolder) continue
+                if (isCancelled()) throw TransferCancelledException(done)
+                if (entry.isFolder) {
+                    // 空文件夹也要在导出端出现,否则目录结构丢信息
+                    runCatching { sinkFactory.ensureDir(relPathOf(entry, index)) }
+                    done++
+                    throttle.emit(done, total, onProgress)
+                    continue
+                }
                 val blobId = entry.blobId
                 if (blobId == null || !vaultManager.blobExists(unlocked.vaultId, blobId)) {
                     failed += entry.name
+                    done++
+                    throttle.emit(done, total, onProgress)
                     continue
                 }
                 val rel = relPathOf(entry, index)
@@ -215,6 +244,8 @@ class TransferEngine(private val vaultManager: VaultManager) {
                     sinkFactory.create(rel, entry.mimeType)
                 } catch (e: Exception) {
                     failed += entry.name
+                    done++
+                    throttle.emit(done, total, onProgress)
                     continue
                 }
                 try {
@@ -225,12 +256,15 @@ class TransferEngine(private val vaultManager: VaultManager) {
                     exported++
                 } catch (e: TransferCancelledException) {
                     sink.abort()
-                    throw e
+                    throw TransferCancelledException(done)
                 } catch (e: Exception) {
                     sink.abort()
                     failed += entry.name
                 }
+                done++
+                throttle.emit(done, total, onProgress)
             }
+            onProgress(done, total)
             return ExportResult(exported = exported, failedNames = failed)
         } finally {
             activeFlag.set(false)
@@ -238,7 +272,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
     }
 
     /** 导出相对路径:folder/sub/name.ext(目录链从索引回溯)。 */
-    private fun relPathOf(entry: io.vaultx.app.core.vault.VaultEntry, index: VaultIndex): String {
+    private fun relPathOf(entry: VaultEntry, index: VaultIndex): String {
         val parts = mutableListOf(entry.name)
         var cur = entry.parentId
         while (cur != null) {
@@ -249,7 +283,20 @@ class TransferEngine(private val vaultManager: VaultManager) {
         return parts.joinToString("/")
     }
 
+    /** 50ms 节流:进度回调不至于每个文件都推一次 StateFlow。 */
+    private class Throttle(private val minIntervalNs: Long = 50_000_000L) {
+        private var last = 0L
+        fun emit(done: Int, total: Int, sink: (Int, Int) -> Unit) {
+            val now = System.nanoTime()
+            if (now - last >= minIntervalNs) {
+                last = now
+                sink(done, total)
+            }
+        }
+    }
+
     companion object {
+        private const val CHECKPOINT_NS = 1_500_000_000L
         private val IMAGE_EXTS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif")
         private val VIDEO_EXTS = setOf("mp4", "mkv", "webm", "mov", "avi", "m4v", "3gp", "ts")
         private val AUDIO_EXTS = setOf("mp3", "aac", "flac", "wav", "ogg", "m4a", "opus", "wma")

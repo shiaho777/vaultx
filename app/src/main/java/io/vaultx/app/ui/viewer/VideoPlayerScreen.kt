@@ -1,14 +1,36 @@
 package io.vaultx.app.ui.viewer
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
-import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -17,29 +39,38 @@ import io.vaultx.app.core.media.VaultDataSource
 
 /**
  * 视频播放:ExoPlayer + [VaultDataSource]——密文按需分段解密,拖动进度条不整段落地。
+ * 播放中保持亮屏;解码失败/条目缺失显示错误而非黑屏。
  */
 @Composable
 fun VideoPlayerScreen(
     container: AppContainer,
     vaultId: String,
     entryId: String,
+    onBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val unlocked = container.session.get(vaultId)
     val entry = unlocked?.let { container.vaultManager.loadIndex(it).find(entryId) }
+
+    var playError by remember { mutableStateOf<String?>(null) }
 
     val player = remember(entryId) {
         if (unlocked == null || entry?.blobId == null) {
             null
         } else {
             val factory = VaultDataSource.Factory(
-                unlocked, container.vaultManager, entry.blobId!!,
+                unlocked, container.vaultManager, entry.blobId,
                 entry.sizeBytes,
             )
             ExoPlayer.Builder(context)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(factory))
                 .build()
                 .apply {
+                    addListener(object : Player.Listener {
+                        override fun onPlayerError(error: PlaybackException) {
+                            playError = "播放失败:${error.errorCodeName}"
+                        }
+                    })
                     setMediaItem(MediaItem.fromUri("vaultx://$vaultId/${entry.blobId}"))
                     prepare()
                     playWhenReady = true
@@ -51,8 +82,50 @@ fun VideoPlayerScreen(
         onDispose { player?.release() }
     }
 
-    AndroidView(
-        factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
-        modifier = Modifier.fillMaxSize(),
-    )
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        if (player != null && playError == null) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        keepScreenOn = true
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Column(
+                Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            ) {
+                Text(
+                    playError ?: "无法打开该视频",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+        }
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .background(Color.Black.copy(alpha = 0.45f))
+                .statusBarsPadding()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text(
+                entry?.name ?: "",
+                color = Color.White,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+            )
+        }
+    }
 }

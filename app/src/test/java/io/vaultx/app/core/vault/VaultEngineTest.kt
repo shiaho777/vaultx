@@ -322,4 +322,60 @@ class VaultEngineTest {
         manager.unlock(meta.vaultId, pw("pw1234"), rewrapParams = KdfParams.TEST)
         assertEquals(stronger, manager.metaOf(meta.vaultId).kdfParams)
     }
+
+    @Test
+    fun archiveExcludesBioWrap() {
+        val meta = manager.createVault("b", pw("pw1234"), kdfParams = KdfParams.TEST)
+        manager.writeBioWrap(meta.vaultId, byteArrayOf(1, 2, 3))
+        val out = ByteArrayOutputStream()
+        archive.exportVault(meta.vaultId, out)
+        manager.deleteVault(meta.vaultId)
+        archive.importVault(ByteArrayInputStream(out.toByteArray()), pw("pw1234"))
+        // bio.wrap 绑定本机 Keystore,不随归档走
+        assertFalse(manager.bioWrapFile(meta.vaultId).exists())
+    }
+
+    @Test
+    fun archiveTrailingGarbageRejected() {
+        val meta = manager.createVault("t", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val out = ByteArrayOutputStream()
+        archive.exportVault(meta.vaultId, out)
+        val bytes = out.toByteArray() + byteArrayOf(0x55)
+        manager.deleteVault(meta.vaultId)
+        try {
+            archive.importVault(ByteArrayInputStream(bytes), pw("pw1234"))
+            fail("trailing garbage must be rejected")
+        } catch (e: ArchiveException) {
+            assertTrue(e.message!!.contains("多余"))
+        }
+        assertFalse(manager.vaultExists(meta.vaultId))
+    }
+
+    @Test
+    fun archiveTruncatedRejected() {
+        val meta = manager.createVault("t", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val blob = manager.blobFile(meta.vaultId, "b1")
+        blob.parentFile?.mkdirs()
+        blob.writeBytes(ByteArray(10_000) { 3 })
+        val out = ByteArrayOutputStream()
+        archive.exportVault(meta.vaultId, out)
+        val truncated = out.toByteArray().copyOf(out.size() - 100)
+        manager.deleteVault(meta.vaultId)
+        try {
+            archive.importVault(ByteArrayInputStream(truncated), pw("pw1234"))
+            fail("truncated archive must be rejected")
+        } catch (_: ArchiveException) {
+        }
+        assertFalse(manager.vaultExists(meta.vaultId))
+    }
+
+    @Test
+    fun wipeAllRemovesEverything() {
+        manager.createVault("a", pw("pw1234"), kdfParams = KdfParams.TEST)
+        manager.createVault("b", pw("pw1234"), kdfParams = KdfParams.TEST)
+        File(manager.pendingRoot(), "import-stuck").mkdirs()
+        manager.wipeAll()
+        assertTrue(manager.listVaults().isEmpty())
+        assertEquals(0, manager.pendingRoot().listFiles()?.size ?: 0)
+    }
 }

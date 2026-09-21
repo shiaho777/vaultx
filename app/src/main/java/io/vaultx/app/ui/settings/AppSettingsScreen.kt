@@ -12,24 +12,33 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.vaultx.app.AppContainer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /** 应用设置:后台自动锁定时长 + 防截屏。 */
@@ -45,8 +54,10 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
         30 to "30 秒",
         60 to "1 分钟",
         300 to "5 分钟",
+        600 to "10 分钟",
         900 to "15 分钟",
     )
+    var panicConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -118,7 +129,57 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Text("危险区", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { panicConfirm = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("紧急销毁所有库", color = MaterialTheme.colorScheme.error)
+            }
+            Text(
+                "胁迫或紧急场景下一键抹除全部保险库与临时空间。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (panicConfirm) {
+        var confirmText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { panicConfirm = false },
+            title = { Text("紧急销毁所有库?", color = MaterialTheme.colorScheme.error) },
+            text = {
+                Column(Modifier.imePadding()) {
+                    Text(
+                        "将永久删除全部保险库及临时空间内容,无法恢复。" +
+                            "(闪存磨损均衡下快速删除不能保证每个物理块都被回收——这是同类工具的共同边界。)",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = confirmText,
+                        onValueChange = { confirmText = it },
+                        label = { Text("输入「销毁」确认") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = confirmText == "销毁",
+                    onClick = {
+                        panicConfirm = false
+                        scope.launch(Dispatchers.IO) { container.panicWipe() }
+                    },
+                ) { Text("立即销毁", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { panicConfirm = false }) { Text("取消") } },
+        )
     }
 }

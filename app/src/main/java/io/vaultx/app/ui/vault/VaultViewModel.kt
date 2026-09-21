@@ -13,6 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** 排序档位。 */
@@ -22,8 +24,14 @@ enum class SortBy(val label: String) { NAME("名称"), TIME("时间"), SIZE("大
 data class TransferState(val done: Int, val total: Int, val label: String)
 
 /**
- * 库内文件浏览/操作的状态中枢。所有磁盘+解密动作都在 IO 线程;
- * 索引改动先改内存再 saveIndex 落盘。
+ * 库内文件浏览/操作的状态中枢。所有磁盘+解密动作都在 IO 线程。
+ *
+ * 索引一致性(竞态防线):
+ * - 所有索引读-改-写都串行经过 [indexMutex];导入全程持锁,期间发起的
+ *   改名/移动/删除排队,取锁后重读最新索引再改——杜绝"导入终存覆盖中途修改"
+ * - 删除顺序:先 saveIndex 落盘成功,再删 blob——保存失败时文件完好保留
+ * - 取锁后重新校验会话(等待期间可能已被自动锁定)
+ * - 传输未结束前拒绝启动新传输
  */
 class VaultViewModel(
     private val container: AppContainer,
@@ -54,6 +62,11 @@ class VaultViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
+    /** 非错误性结果提示(如"已导出 8 项,1 个失败")。 */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice
+
+    private val indexMutex = Mutex()
     private val cancelFlag = AtomicBoolean(false)
 
     val currentFolderId: String? get() = _folderStack.value.lastOrNull()?.id
@@ -65,11 +78,18 @@ class VaultViewModel(
 
     fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
-            val idx = unlocked?.let { container.vaultManager.loadIndex(it) }
-            _index.value = idx
-            // 栈里已被删的文件夹清掉(如外部操作)
-            val ids = idx?.entries?.map { it.id }?.toSet() ?: emptySet()
-            _folderStack.value = _folderStack.value.filter { it.id in ids }
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = runCatching { container.vaultManager.loadIndex(u) }
+                    .getOrElse {
+                        _error.value = "索引读取失败:${it.message}"
+                        return@withLock
+                    }
+                _index.value = idx
+                // 栈里已被删的文件夹清掉(如外部操作)
+                val ids = idx.entries.map { it.id }.toSet()
+                _folderStack.value = _folderStack.value.filter { it.id in ids }
+            }
         }
     }
 
@@ -94,6 +114,7 @@ class VaultViewModel(
     fun setQuery(q: String) { _query.value = q }
     fun setSortBy(s: SortBy) { _sortBy.value = s }
     fun clearError() { _error.value = null }
+    fun clearNotice() { _notice.value = null }
 
     fun openFolder(entry: VaultEntry) {
         if (entry.isFolder) _folderStack.value = _folderStack.value + entry
@@ -108,6 +129,11 @@ class VaultViewModel(
 
     fun jumpToBreadcrumb(index: Int) {
         _folderStack.value = _folderStack.value.take(index + 1)
+    }
+
+    /** 立即锁定本库(清 VMK、弹回锁定界面)。 */
+    fun lockNow() {
+        container.session.lock(vaultId)
     }
 
     // ---------------- 选择 ----------------
@@ -125,25 +151,37 @@ class VaultViewModel(
     // ---------------- 导入 ----------------
 
     fun import(sources: List<TransferEngine.ImportSource>) {
+        if (_transfer.value != null) {
+            _error.value = "已有传输进行中,请先等待或取消"
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _transfer.value = TransferState(0, 0, "导入中…")
-            try {
-                val u = unlocked ?: return@launch
-                val idx = _index.value ?: container.vaultManager.loadIndex(u)
-                container.transferEngine.import(
-                    u, sources, currentFolderId, idx,
-                    isCancelled = { cancelFlag.get() },
-                    onProgress = { done, total -> _transfer.value = TransferState(done, total, "导入中…") },
-                )
-                container.vaultManager.saveIndex(u, idx)
-                refresh()
-            } catch (e: TransferEngine.TransferCancelledException) {
-                refresh()
-            } catch (e: Throwable) {
-                _error.value = "导入失败:${e.message}"
-            } finally {
-                _transfer.value = null
+            // 导入全程持索引锁:中途的改名/删除排队,取锁后读到的是导入后的最新索引
+            indexMutex.withLock {
+                try {
+                    val u = unlocked ?: return@withLock
+                    val idx = container.vaultManager.loadIndex(u)
+                    val res = container.transferEngine.import(
+                        u, sources, currentFolderId, idx,
+                        isCancelled = { cancelFlag.get() },
+                        onProgress = { done, total -> _transfer.value = TransferState(done, total, "导入中…") },
+                        onCheckpoint = { i -> container.vaultManager.saveIndex(u, i) },
+                    )
+                    container.vaultManager.saveIndex(u, idx)
+                    _index.value = idx
+                    _notice.value = "已导入 ${res.imported} 项"
+                } catch (e: TransferEngine.TransferCancelledException) {
+                    // 检查点已终存;重读让 UI 显示保留下的部分导入
+                    val u = unlocked
+                    if (u != null) _index.value = container.vaultManager.loadIndex(u)
+                    if (e.completed > 0) _notice.value = "已取消;保留已导入的 ${e.completed} 项"
+                } catch (e: Throwable) {
+                    _error.value = "导入失败:${e.message}"
+                } finally {
+                    _transfer.value = null
+                }
             }
         }
     }
@@ -156,80 +194,100 @@ class VaultViewModel(
 
     fun renameEntry(id: String, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val u = unlocked ?: return@launch
-            val idx = _index.value ?: return@launch
-            val i = idx.entries.indexOfFirst { it.id == id }
-            if (i < 0 || newName.isBlank()) return@launch
-            idx.entries[i] = idx.entries[i].copy(name = newName.trim(), updatedAt = System.currentTimeMillis())
-            persist(idx)
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u)
+                val i = idx.entries.indexOfFirst { it.id == id }
+                if (i < 0 || newName.isBlank()) return@withLock
+                idx.entries[i] = idx.entries[i].copy(name = newName.trim(), updatedAt = System.currentTimeMillis())
+                persist(u, idx)
+            }
         }
     }
 
     fun moveEntries(ids: Set<String>, targetFolderId: String?) {
         viewModelScope.launch(Dispatchers.IO) {
-            val u = unlocked ?: return@launch
-            val idx = _index.value ?: return@launch
-            // 防环:目标不能是被移条目自身或其子孙
-            val forbidden = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
-            if (targetFolderId != null && targetFolderId in forbidden) {
-                _error.value = "不能移动到自身内部"
-                return@launch
-            }
-            var changed = false
-            ids.forEach { id ->
-                val i = idx.entries.indexOfFirst { it.id == id }
-                if (i >= 0 && idx.entries[i].parentId != targetFolderId) {
-                    idx.entries[i] = idx.entries[i].copy(parentId = targetFolderId, updatedAt = System.currentTimeMillis())
-                    changed = true
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u)
+                // 防环:目标不能是被移条目自身或其子孙
+                val forbidden = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
+                if (targetFolderId != null && targetFolderId in forbidden) {
+                    _error.value = "不能移动到自身内部"
+                    return@withLock
                 }
+                var changed = false
+                ids.forEach { id ->
+                    val i = idx.entries.indexOfFirst { it.id == id }
+                    if (i >= 0 && idx.entries[i].parentId != targetFolderId) {
+                        idx.entries[i] = idx.entries[i].copy(parentId = targetFolderId, updatedAt = System.currentTimeMillis())
+                        changed = true
+                    }
+                }
+                if (changed) persist(u, idx)
+                clearSelection()
             }
-            if (changed) persist(idx)
-            clearSelection()
         }
     }
 
     fun deleteEntries(ids: Set<String>) {
         viewModelScope.launch(Dispatchers.IO) {
-            val u = unlocked ?: return@launch
-            val idx = _index.value ?: return@launch
-            // 级联:文件夹连子孙一起删;收集 blobId 先删索引再删密文
-            val doomed = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
-            val blobIds = idx.entries.filter { it.id in doomed }.mapNotNull { it.blobId }
-            idx.entries.removeAll { it.id in doomed }
-            persist(idx)
-            blobIds.forEach { container.vaultManager.deleteBlob(u.vaultId, it) }
-            clearSelection()
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u)
+                // 级联:文件夹连子孙一起删;顺序:先索引落盘成功 → 再删 blob
+                val doomed = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
+                val blobIds = idx.entries.filter { it.id in doomed }.mapNotNull { it.blobId }
+                idx.entries.removeAll { it.id in doomed }
+                if (!persist(u, idx)) return@withLock // 保存失败:blob 一个不删
+                blobIds.forEach { container.vaultManager.deleteBlob(u.vaultId, it) }
+                clearSelection()
+            }
         }
     }
 
     fun newFolder(name: String) {
         if (name.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
-            val u = unlocked ?: return@launch
-            val idx = _index.value ?: return@launch
-            idx.addEntry(name = name.trim(), kind = MediaKind.FOLDER, parentId = currentFolderId)
-            persist(idx)
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u)
+                idx.addEntry(name = name.trim(), kind = MediaKind.FOLDER, parentId = currentFolderId)
+                persist(u, idx)
+            }
         }
     }
 
     // ---------------- 导出 ----------------
 
-    fun exportEntries(ids: Set<String>, sinkFactory: TransferEngine.ExportSinkFactory, onDone: (Int, Int) -> Unit) {
+    fun exportEntries(ids: Set<String>, sinkFactory: TransferEngine.ExportSinkFactory) {
+        if (_transfer.value != null) {
+            _error.value = "已有传输进行中,请先等待或取消"
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _transfer.value = TransferState(0, 0, "导出中…")
             try {
                 val u = unlocked ?: return@launch
-                val idx = _index.value ?: return@launch
-                // 展开文件夹:导出其全部子孙文件
+                val idx = _index.value ?: container.vaultManager.loadIndex(u)
+                // 展开文件夹:导出其全部子孙(文件夹条目本身也导出为空目录)
                 val doomed = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
-                val targets = idx.entries.filter { it.id in doomed && !it.isFolder }
+                val targets = idx.entries.filter { it.id in doomed }
                 val res = container.transferEngine.exportEntries(
                     u, targets, idx, sinkFactory,
                     isCancelled = { cancelFlag.get() },
+                    onProgress = { done, total -> _transfer.value = TransferState(done, total, "导出中…") },
                 )
-                withContext(Dispatchers.Main) { onDone(res.exported, res.failed) }
+                _notice.value = buildString {
+                    append("已导出 ${res.exported} 项")
+                    if (res.failed > 0) {
+                        append(",${res.failed} 个失败")
+                        res.failedNames.take(3).let { if (it.isNotEmpty()) append(":${it.joinToString("、")}") }
+                    }
+                }
             } catch (_: TransferEngine.TransferCancelledException) {
+                _notice.value = "导出已取消"
             } catch (e: Throwable) {
                 _error.value = "导出失败:${e.message}"
             } finally {
@@ -247,19 +305,23 @@ class VaultViewModel(
             val u = unlocked ?: return@launch
             val bytes = container.thumbnailer.generate(u, blobId, entry.kind) ?: return@launch
             container.vaultManager.writeThumb(u, blobId, bytes)
-            val idx = _index.value ?: return@launch
-            val i = idx.entries.indexOfFirst { it.id == entry.id }
-            if (i >= 0 && !idx.entries[i].hasThumb) {
-                idx.entries[i] = idx.entries[i].copy(hasThumb = true)
-                persist(idx)
+            indexMutex.withLock {
+                val u2 = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u2)
+                val i = idx.entries.indexOfFirst { it.id == entry.id }
+                if (i >= 0 && !idx.entries[i].hasThumb) {
+                    idx.entries[i] = idx.entries[i].copy(hasThumb = true)
+                    persist(u2, idx)
+                }
             }
         }
     }
 
-    private fun persist(idx: VaultIndex) {
-        val u = unlocked ?: return
-        runCatching { container.vaultManager.saveIndex(u, idx) }
+    /** 索引落盘并刷新内存态;失败时报错且不更新界面(返回 false)。 */
+    private fun persist(u: UnlockedVault, idx: VaultIndex): Boolean {
+        return runCatching { container.vaultManager.saveIndex(u, idx) }
+            .onSuccess { _index.value = idx }
             .onFailure { _error.value = "保存索引失败:${it.message}" }
-        _index.value = idx
+            .isSuccess
     }
 }
