@@ -4,11 +4,13 @@ import android.graphics.Bitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import coil3.SingletonImageLoader
+import coil3.asImage
 import coil3.memory.MemoryCache
 import io.vaultx.app.core.crypto.KdfParams
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -36,7 +38,7 @@ class LockClearsImageCacheTest {
         // 往 Coil 内存缓存塞一张图,模拟刚看过解密图片
         val imageLoader = SingletonImageLoader.get(context)
         val cacheKey = MemoryCache.Key("vaultx:${meta.vaultId}:b")
-        imageLoader.memoryCache?.set(cacheKey, MemoryCache.Value(Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)))
+        imageLoader.memoryCache?.set(cacheKey, MemoryCache.Value(Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).asImage()))
         assertFalse(imageLoader.memoryCache?.keys?.isEmpty() != false)
 
         // 锁定
