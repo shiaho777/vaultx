@@ -1,0 +1,54 @@
+[versions]
+agp = "9.2.0"
+kotlin = "2.4.10"
+composeBom = "2026.06.01"
+material3 = "1.5.0-alpha27"
+navigation3 = "1.1.7"
+lifecycle = "2.11.0"
+activityCompose = "1.13.0"
+coreKtx = "1.17.0"
+datastore = "1.2.1"
+media3 = "1.11.0"
+coil = "3.6.2"
+tink = "1.23.0"
+bouncycastle = "1.85.2"
+biometric = "1.4.0-alpha07"
+fragment = "1.8.9"
+kotlinxSerialization = "1.9.0"
+kotlinxCoroutines = "1.10.2"
+junit = "4.13.2"
+
+[libraries]
+compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+compose-ui = { group = "androidx.compose.ui", name = "ui" }
+compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
+navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "navigation3" }
+lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycle" }
+activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-core = { group = "io.coil-kt.coil3", name = "coil", version.ref = "coil" }
+tink-android = { group = "com.google.crypto.tink", name = "tink-android", version.ref = "tink" }
+bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+fragment = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragment" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
