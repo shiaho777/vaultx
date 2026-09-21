@@ -32,10 +32,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.biometric.BiometricPrompt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import io.vaultx.app.AppContainer
 import io.vaultx.app.core.vault.VaultMeta
 import io.vaultx.app.ui.components.ConfirmDialog
@@ -225,16 +228,50 @@ fun VaultSettingsScreen(
                             enabled = bioAvailable && unlocked != null && !viaDecoy,
                             onClick = {
                                 val u = unlocked ?: return@TextButton
-                                // 包裹 VMK 写 bio.wrap(包裹动作不需要活体;解包才要)
-                                runCatching {
-                                    container.vaultManager.writeBioWrap(
-                                        vaultId,
-                                        container.biometrics.wrapVmk(vaultId, u.crypto.vmk),
-                                    )
-                                }.onSuccess {
-                                    notice = "生物识别已开启"
-                                    refreshMeta()
-                                }.onFailure { error = "写入失败:${it.message}" }
+                                val activity = context as? FragmentActivity ?: return@TextButton
+                                // auth-required 密钥的 ENCRYPT 同样要现场活体——开启也走 BiometricPrompt
+                                val crypto = try {
+                                    container.biometrics.cryptoObjectForWrap(vaultId)
+                                } catch (e: Exception) {
+                                    error = "生物识别初始化失败:${e.message}"
+                                    return@TextButton
+                                }
+                                BiometricPrompt(
+                                    activity,
+                                    ContextCompat.getMainExecutor(context),
+                                    object : BiometricPrompt.AuthenticationCallback() {
+                                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                                            val wrapped = result.cryptoObject?.let {
+                                                container.biometrics.wrapVmkWith(it, u.crypto.vmk)
+                                            }
+                                            if (wrapped == null) {
+                                                error = "生物识别包裹失败"
+                                                return
+                                            }
+                                            runCatching {
+                                                container.vaultManager.writeBioWrap(vaultId, wrapped)
+                                            }.onSuccess {
+                                                notice = "生物识别已开启"
+                                                refreshMeta()
+                                            }.onFailure { error = "写入失败:${it.message}" }
+                                        }
+
+                                        override fun onAuthenticationError(code: Int, errString: CharSequence) {
+                                            if (code != BiometricPrompt.ERROR_USER_CANCELED &&
+                                                code != BiometricPrompt.ERROR_NEGATIVE_BUTTON
+                                            ) {
+                                                error = "生物识别失败:$errString"
+                                            }
+                                        }
+                                    },
+                                ).authenticate(
+                                    BiometricPrompt.PromptInfo.Builder()
+                                        .setTitle("开启生物识别解锁")
+                                        .setSubtitle("验证以将库密钥绑定到本机生物识别")
+                                        .setNegativeButtonText("取消")
+                                        .build(),
+                                    crypto,
+                                )
                             },
                         ) { Text("开启") }
                     }

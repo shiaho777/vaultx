@@ -179,6 +179,16 @@ class VaultEngineTest {
     }
 
     @Test
+    fun craftedMetaWithAbsurdKdfIsClamped() {
+        val meta = manager.createVault("r", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
+        // 伪造 meta:巨型 KDF 参数(恶意归档可注入)——钳制到上限内,不 OOM
+        val evil = meta.copy(kdfMemoryKiB = Int.MAX_VALUE, kdfIterations = Int.MAX_VALUE, kdfParallelism = 99)
+        assertEquals(512 * 1024, evil.kdfParams.memoryKiB)
+        assertEquals(64, evil.kdfParams.iterations)
+        assertEquals(8, evil.kdfParams.parallelism)
+    }
+
+    @Test
     fun decoyPasswordEqualToRealIsRejected() {
         val meta = manager.createVault("r", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
         val unlocked = manager.unlock(meta.vaultId, pw("realpw"))

@@ -187,6 +187,25 @@ class CryptoTest {
         }
     }
 
+    @Test
+    fun portableMaliciousKdfParamsRejected() {
+        // 构造头部:合法 magic+version,但 memoryKiB=2GiB——必须在派生前被拒而不是 OOM
+        val enc = PortableCipher.encryptBlock("pw".toCharArray(), "x".toByteArray(), params)
+        val ba = java.io.ByteArrayOutputStream()
+        val out = java.io.DataOutputStream(ba)
+        out.write(enc.copyOfRange(0, 5)) // magic + version
+        out.writeInt(Int.MAX_VALUE) // memoryKiB
+        out.writeInt(3)
+        out.writeInt(1)
+        out.write(enc.copyOfRange(17, enc.size)) // saltLen + salt + 密文
+        out.flush()
+        try {
+            PortableCipher.decryptBlock("pw".toCharArray(), ba.toByteArray())
+            fail("expected PortableFormatException for absurd KDF params")
+        } catch (_: PortableFormatException) {
+        }
+    }
+
     // ---------------- KdfParams ----------------
 
     @Test

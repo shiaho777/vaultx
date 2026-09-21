@@ -25,13 +25,21 @@ class BiometricKeystore {
         BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
             BiometricManager.BIOMETRIC_SUCCESS
 
-    /** 建/换 Keystore 密钥并包裹 VMK,返回可落盘的 iv+ct。 */
-    fun wrapVmk(vaultId: String, vmk: ByteArray): ByteArray {
+    /**
+     * 开启用的 CryptoObject:auth-required 密钥的 ENCRYPT 同样要现场活体
+     * (不设有效期的密钥每次使用都必须认证)——开启流程也走 BiometricPrompt。
+     */
+    fun cryptoObjectForWrap(vaultId: String): BiometricPrompt.CryptoObject {
         val key = getOrCreateKey(vaultId)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
-        val ct = cipher.doFinal(vmk)
-        return cipher.iv + ct
+        return BiometricPrompt.CryptoObject(cipher)
+    }
+
+    /** 认证成功后:用 CryptoObject 里的 Cipher 包裹 VMK,返回可落盘的 iv+ct。 */
+    fun wrapVmkWith(cryptoObject: BiometricPrompt.CryptoObject, vmk: ByteArray): ByteArray? {
+        val cipher = cryptoObject.cipher ?: return null
+        return runCatching { cipher.doFinal(vmk).let { cipher.iv + it } }.getOrNull()
     }
 
     /**

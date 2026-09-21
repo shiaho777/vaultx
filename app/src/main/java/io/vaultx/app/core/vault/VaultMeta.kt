@@ -37,11 +37,24 @@ data class VaultMeta(
 
     val hasDecoy: Boolean get() = saltDecoy != null && wrappedVmkDecoy != null
 
-    val kdfParams: KdfParams get() = KdfParams(kdfMemoryKiB, kdfIterations, kdfParallelism)
+    /**
+     * 主链参数。meta 明文可被构造(恶意 .fvault 归档):巨型 memoryKiB 会让
+     * Argon2id 派生即 OOM——钳到上限内,派生出的错误密钥自然过不了 unwrap。
+     */
+    val kdfParams: KdfParams
+        get() = KdfParams(
+            kdfMemoryKiB.coerceIn(1, MAX_KDF_MEMORY_KIB),
+            kdfIterations.coerceIn(1, MAX_KDF_ITERATIONS),
+            kdfParallelism.coerceIn(1, MAX_KDF_PARALLELISM),
+        )
 
     val kdfDecoyParams: KdfParams
         get() = if (kdfDecoyMemoryKiB > 0) {
-            KdfParams(kdfDecoyMemoryKiB, kdfDecoyIterations, kdfDecoyParallelism)
+            KdfParams(
+                kdfDecoyMemoryKiB.coerceIn(1, MAX_KDF_MEMORY_KIB),
+                kdfDecoyIterations.coerceIn(1, MAX_KDF_ITERATIONS),
+                kdfDecoyParallelism.coerceIn(1, MAX_KDF_PARALLELISM),
+            )
         } else {
             // 旧格式兼容:没记录诱骗参数时与主链同档
             kdfParams
@@ -56,6 +69,11 @@ data class VaultMeta(
 
     companion object {
         const val FILE_NAME = "meta.vault"
+
+        // KDF 参数钳制上限(与 PortableCipher 同口径):512MiB/64 次/8 路
+        private const val MAX_KDF_MEMORY_KIB = 512 * 1024
+        private const val MAX_KDF_ITERATIONS = 64
+        private const val MAX_KDF_PARALLELISM = 8
 
         private val json = Json { ignoreUnknownKeys = true }
         private val enc = Base64.getEncoder()

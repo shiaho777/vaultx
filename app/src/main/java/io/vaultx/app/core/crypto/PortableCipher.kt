@@ -30,6 +30,9 @@ object PortableCipher {
     private const val VERSION: Byte = 1
     private const val SALT_LENGTH = 16
     private val AD = "vaultx-portable-v1".toByteArray(Charsets.UTF_8)
+    private const val MAX_KDF_MEMORY_KIB = 512 * 1024
+    private const val MAX_KDF_ITERATIONS = 64
+    private const val MAX_KDF_PARALLELISM = 8
 
     private val random = SecureRandom()
 
@@ -113,6 +116,14 @@ object PortableCipher {
             iterations = header.readInt(),
             parallelism = header.readInt(),
         )
+        // 头部参数是文件自带的——恶意 .vlt 可写巨型 memoryKiB 让 Argon2 派生即 OOM。
+        // 上限取 HIGH_SECURITY 的 8 倍(512MiB),远超任何正常导出
+        if (params.memoryKiB <= 0 || params.memoryKiB > MAX_KDF_MEMORY_KIB ||
+            params.iterations <= 0 || params.iterations > MAX_KDF_ITERATIONS ||
+            params.parallelism <= 0 || params.parallelism > MAX_KDF_PARALLELISM
+        ) {
+            throw PortableFormatException("KDF 参数异常(文件可能被构造用来耗尽内存)")
+        }
         val saltLen = header.readUnsignedByte()
         if (saltLen <= 0 || saltLen > 64) throw PortableFormatException("bad salt length")
         val salt = ByteArray(saltLen).also { header.readFully(it) }
