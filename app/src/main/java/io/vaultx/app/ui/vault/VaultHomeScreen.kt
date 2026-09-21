@@ -422,6 +422,7 @@ fun VaultHomeScreen(
                                 entry = entry,
                                 vaultId = vaultId,
                                 childCount = if (entry.isFolder) folderCounts[entry.id] ?: 0 else null,
+                                subtitle = if (query.isNotBlank()) "位于:${parentPathOf(entry, index)}" else null,
                                 selected = entry.id in selection,
                                 selectionMode = selection.isNotEmpty(),
                                 onClick = { onEntryTap(entry) },
@@ -443,6 +444,7 @@ fun VaultHomeScreen(
                                 entry = entry,
                                 vaultId = vaultId,
                                 childCount = if (entry.isFolder) folderCounts[entry.id] ?: 0 else null,
+                                subtitle = if (query.isNotBlank()) "位于:${parentPathOf(entry, index)}" else null,
                                 selected = entry.id in selection,
                                 selectionMode = selection.isNotEmpty(),
                                 draggable = selection.isNotEmpty() && entry.id in selection,
@@ -800,6 +802,7 @@ private fun EntryListRow(
     entry: VaultEntry,
     vaultId: String,
     childCount: Int?,
+    subtitle: String? = null,
     selected: Boolean,
     selectionMode: Boolean,
     onClick: () -> Unit,
@@ -832,9 +835,10 @@ private fun EntryListRow(
             Column(Modifier.weight(1f)) {
                 Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
                 Text(
-                    if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
+                    subtitle ?: if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
             }
             if (selected) {
@@ -866,6 +870,7 @@ private fun EntryCell(
     entry: VaultEntry,
     vaultId: String,
     childCount: Int?,
+    subtitle: String? = null,
     selected: Boolean,
     selectionMode: Boolean,
     draggable: Boolean,
@@ -974,9 +979,10 @@ private fun EntryCell(
                     maxLines = 2,
                 )
                 Text(
-                    if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
+                    subtitle ?: if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
             }
             if (selected) {
