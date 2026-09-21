@@ -4,12 +4,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,7 +45,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,7 +65,9 @@ import io.vaultx.app.core.vault.MediaKind
 import io.vaultx.app.ui.components.ConfirmDialog
 import io.vaultx.app.ui.components.EmptyState
 import io.vaultx.app.ui.components.PasswordField
+import io.vaultx.app.ui.components.decodePreviewText
 import io.vaultx.app.ui.components.formatBytes
+import io.vaultx.app.ui.components.isTextFileName
 
 /**
  * 无锁模式主页:临时文件列表 + 导入 + .vlt 加密转换/预览 + 退出即焚。
@@ -80,6 +88,7 @@ fun SessionHomeScreen(
     var menuFor by remember { mutableStateOf<SessionFile?>(null) }
     var renameFor by remember { mutableStateOf<SessionFile?>(null) }
     var deleteFor by remember { mutableStateOf<SessionFile?>(null) }
+    var textFor by remember { mutableStateOf<SessionFile?>(null) }
     var exitConfirm by remember { mutableStateOf(false) }
     // .vlt 相关(多个 .vlt 排队逐个输密码)
     var vltQueue by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
@@ -173,8 +182,10 @@ fun SessionHomeScreen(
                         SessionFileRow(
                             file = f,
                             onClick = {
-                                when (f.kind) {
-                                    MediaKind.IMAGE, MediaKind.VIDEO, MediaKind.AUDIO -> onPreview(f.storedName)
+                                when {
+                                    f.kind == MediaKind.IMAGE || f.kind == MediaKind.VIDEO || f.kind == MediaKind.AUDIO ->
+                                        onPreview(f.storedName)
+                                    isTextFileName(f.storedName, f.sizeBytes) -> textFor = f
                                     else -> menuFor = f
                                 }
                             },
@@ -192,6 +203,9 @@ fun SessionHomeScreen(
             if (f.kind == MediaKind.IMAGE || f.kind == MediaKind.VIDEO || f.kind == MediaKind.AUDIO) {
                 DropdownMenuItem(text = { Text("预览") }, onClick = { onPreview(f.storedName); menuFor = null })
             }
+            if (isTextFileName(f.storedName, f.sizeBytes)) {
+                DropdownMenuItem(text = { Text("文本预览") }, onClick = { textFor = f; menuFor = null })
+            }
             DropdownMenuItem(text = { Text("重命名") }, onClick = { renameFor = f; menuFor = null })
             DropdownMenuItem(
                 text = { Text("导出为 .vlt 密文") },
@@ -206,6 +220,40 @@ fun SessionHomeScreen(
                 onClick = { deleteFor = f; menuFor = null },
             )
         }
+    }
+
+    // ---------- 文本预览 ----------
+    textFor?.let { f ->
+        var content by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(f.storedName) {
+            content = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { decodePreviewText(container.sessionManager.file(f.storedName).readBytes()) }.getOrNull()
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { textFor = null },
+            title = { Text(f.displayName, style = MaterialTheme.typography.titleSmall) },
+            text = {
+                if (content == null) {
+                    Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            content!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 420.dp)
+                                .verticalScroll(rememberScrollState()),
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { textFor = null }) { Text("关闭") } },
+        )
     }
 
     // ---------- .vlt 导入密码(队列逐个处理) ----------

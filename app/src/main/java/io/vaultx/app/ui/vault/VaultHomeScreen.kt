@@ -110,7 +110,9 @@ import io.vaultx.app.core.vault.VaultEntry
 import io.vaultx.app.ui.components.EmptyState
 import io.vaultx.app.ui.components.PasswordField
 import io.vaultx.app.ui.components.TransferProgressBar
+import io.vaultx.app.ui.components.decodePreviewText
 import io.vaultx.app.ui.components.formatBytes
+import io.vaultx.app.ui.components.isTextFileName
 import io.vaultx.app.ui.components.pressScale
 
 /**
@@ -735,7 +737,7 @@ fun VaultHomeScreen(
                 runCatching {
                     val u = container.session.get(vaultId) ?: return@runCatching null
                     container.vaultManager.openBlobStream(u, entry.blobId!!).use {
-                        decodeText(it.readBytes())
+                        decodePreviewText(it.readBytes())
                     }
                 }.getOrNull()
             }
@@ -879,19 +881,6 @@ private fun parentPathOf(
         cur = p.parentId
     }
     return if (parts.isEmpty()) "根目录" else parts.joinToString(" / ")
-}
-
-/** 文本预览解码:严格 UTF-8(去 BOM),失败回退 GBK——中文 Windows 记事本默认存 GBK。 */
-private fun decodeText(bytes: ByteArray): String {
-    val text = try {
-        Charsets.UTF_8.newDecoder()
-            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
-            .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
-    } catch (_: java.nio.charset.CharacterCodingException) {
-        String(bytes, java.nio.charset.Charset.forName("GBK"))
-    }
-    return text.removePrefix("﻿")
 }
 
 @Composable
@@ -1123,13 +1112,6 @@ private fun iconFor(kind: MediaKind) = when (kind) {
     MediaKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 
-private val TEXT_EXTS = setOf(
-    "txt", "md", "log", "json", "xml", "csv", "yaml", "yml", "ini", "conf",
-    "html", "htm", "kt", "java", "py", "js", "ts", "c", "cpp", "h", "sh",
-)
-
 /** 可内联预览的文本类条目:OTHER 类型 + 文本扩展名 + ≤512KB(防大文件卡 UI)。 */
 private fun isTextEntry(e: VaultEntry): Boolean =
-    !e.isFolder && e.kind == MediaKind.OTHER &&
-        e.name.substringAfterLast('.', "").lowercase() in TEXT_EXTS &&
-        e.sizeBytes in 0..(512 * 1024)
+    !e.isFolder && e.kind == MediaKind.OTHER && isTextFileName(e.name, e.sizeBytes)
