@@ -156,6 +156,8 @@ fun VaultHomeScreen(
     // .vlt 加密导出:先收密码 → 选保存位置 → 流式写出
     var vltExportFor by remember { mutableStateOf<VaultEntry?>(null) }
     var vltPassword by remember { mutableStateOf<String?>(null) }
+    // "导入到此处"的目标文件夹(文件夹溢出菜单触发),null = 当前目录
+    var importTarget by remember { mutableStateOf<String?>(null) }
 
     // 拖拽移动状态:选中态下拖卡片到文件夹格子上
     var dragEntry by remember { mutableStateOf<VaultEntry?>(null) }
@@ -195,14 +197,18 @@ fun VaultHomeScreen(
     val importFilesLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
+        val target = importTarget
+        importTarget = null
         if (uris.isNotEmpty()) {
-            vm.import(uris.map { container.safTransfer.fileSource(it) })
+            vm.import(uris.map { container.safTransfer.fileSource(it) }, intoFolderId = target)
         }
     }
     val importFolderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
-        if (uri != null) vm.import(listOf(container.safTransfer.treeSource(uri)))
+        val target = importTarget
+        importTarget = null
+        if (uri != null) vm.import(listOf(container.safTransfer.treeSource(uri)), intoFolderId = target)
     }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -641,6 +647,16 @@ fun VaultHomeScreen(
                     onClick = {
                         vltExportFor = entry
                         overflowFor = null
+                    },
+                )
+            }
+            if (entry.isFolder) {
+                DropdownMenuItem(
+                    text = { Text("导入文件到此处…") },
+                    onClick = {
+                        importTarget = entry.id
+                        overflowFor = null
+                        importFilesLauncher.launch(arrayOf("*/*"))
                     },
                 )
             }

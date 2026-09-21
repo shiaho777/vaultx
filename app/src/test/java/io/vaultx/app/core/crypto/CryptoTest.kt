@@ -11,6 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -249,5 +250,21 @@ class CryptoTest {
         crypto.zeroize()
         assertTrue(vmk.all { it == 0.toByte() })
         assertNotEquals(Arrays.hashCode(VaultCrypto.generateVmk()), 0)
+    }
+
+    @Test
+    fun zeroizeSealsApi() {
+        // zeroize 只清 vmk 数组,Tink keyset 内还有副本——必须连 API 面一起封死
+        val crypto = VaultCrypto(VaultCrypto.generateVmk())
+        val ad = VaultCrypto.blobAd("v", "b")
+        val enc = crypto.encryptBlock("x".toByteArray(), ad)
+        crypto.zeroize()
+        assertThrows(IllegalStateException::class.java) { crypto.decryptBlock(enc, ad) }
+        assertThrows(IllegalStateException::class.java) {
+            crypto.encryptBlock("y".toByteArray(), ad)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            crypto.decryptingStream(enc.inputStream(), ad)
+        }
     }
 }

@@ -46,7 +46,13 @@ class SessionManager(private val cacheDir: File) {
             ?.sortedBy { it.storedName }
             ?: emptyList()
 
-    fun file(storedName: String): File = File(sessionDir(), storedName)
+    /** 取会话文件;名必须解析为会话目录的直接子项——纵深防御,挡住任何 "../" 注入。 */
+    fun file(storedName: String): File {
+        val dir = sessionDir().canonicalFile
+        val f = File(dir, storedName).canonicalFile
+        require(f.parentFile == dir) { "invalid session file name" }
+        return f
+    }
 
     /** 导入一个文件进临时空间;重名自动消解。返回最终条目。 */
     fun importFile(name: String, input: InputStream): SessionFile {
@@ -92,8 +98,10 @@ class SessionManager(private val cacheDir: File) {
      * @throws PortableFormatException 不是 .vlt 文件
      */
     fun importVlt(displayName: String, input: InputStream, password: CharArray): SessionFile {
-        // 去掉 .vlt 后缀作为展示名
-        val base = sanitizeName(displayName.removeSuffix(".vlt"))
+        // 去掉 .vlt 后缀作为展示名(大小写都剥)
+        val base = sanitizeName(
+            if (displayName.endsWith(".vlt", ignoreCase = true)) displayName.dropLast(4) else displayName,
+        )
         val finalName = uniqueName(base)
         val target = File(sessionDir().apply { mkdirs() }, finalName)
         try {

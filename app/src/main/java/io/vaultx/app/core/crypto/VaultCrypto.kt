@@ -19,17 +19,33 @@ class VaultCrypto internal constructor(
 
     private val streamingAead = TinkStreaming.fromRawKey(vmk)
 
-    fun encryptingStream(out: OutputStream, associatedData: ByteArray): OutputStream =
-        streamingAead.newEncryptingStream(out, associatedData)
+    /**
+     * 锁定后拒绝一切密码学操作:Tink 的 keyset 内部持有 VMK 副本,
+     * 只清 [vmk] 数组挡不住残留引用继续解密——必须连 API 面一起封死。
+     */
+    @Volatile
+    private var destroyed = false
 
-    fun decryptingStream(input: InputStream, associatedData: ByteArray): InputStream =
-        streamingAead.newDecryptingStream(input, associatedData)
+    private fun alive() = check(!destroyed) { "vault is locked" }
+
+    fun encryptingStream(out: OutputStream, associatedData: ByteArray): OutputStream {
+        alive()
+        return streamingAead.newEncryptingStream(out, associatedData)
+    }
+
+    fun decryptingStream(input: InputStream, associatedData: ByteArray): InputStream {
+        alive()
+        return streamingAead.newDecryptingStream(input, associatedData)
+    }
 
     /** 可随机定位的解密通道,供 ExoPlayer 按需拉取。 */
     fun seekableDecryptingChannel(
         channel: SeekableByteChannel,
         associatedData: ByteArray,
-    ): SeekableByteChannel = streamingAead.newSeekableDecryptingChannel(channel, associatedData)
+    ): SeekableByteChannel {
+        alive()
+        return streamingAead.newSeekableDecryptingChannel(channel, associatedData)
+    }
 
     /** 小块数据(索引、缩略图)的一次性加解密,复用同一流式格式。 */
     fun encryptBlock(plain: ByteArray, associatedData: ByteArray): ByteArray {
@@ -43,6 +59,7 @@ class VaultCrypto internal constructor(
 
     /** 尽力擦除内存中的密钥材料(JVM 不做绝对保证,尽人事)。 */
     fun zeroize() {
+        destroyed = true
         Arrays.fill(vmk, 0.toByte())
     }
 

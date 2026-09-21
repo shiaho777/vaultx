@@ -189,6 +189,11 @@ class VaultViewModel(
      * 明文只在流里过,不落地;密码数组用完即清零。
      */
     fun exportAsVlt(entry: VaultEntry, password: CharArray, output: java.io.OutputStream) {
+        if (_transfer.value != null) {
+            password.fill('\u0000')
+            _error.value = "已有传输进行中,请先等待或取消"
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             _transfer.value = TransferState(0, 1, "加密导出…")
             try {
@@ -211,11 +216,13 @@ class VaultViewModel(
 
     // ---------------- 导入 ----------------
 
-    fun import(sources: List<TransferEngine.ImportSource>) {
+    /** [intoFolderId] 指定目标文件夹("导入到此处"),null = 当前目录。 */
+    fun import(sources: List<TransferEngine.ImportSource>, intoFolderId: String? = null) {
         if (_transfer.value != null) {
             _error.value = "已有传输进行中,请先等待或取消"
             return
         }
+        val targetFolder = intoFolderId ?: currentFolderId
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _transfer.value = TransferState(0, 0, "导入中…")
@@ -226,7 +233,7 @@ class VaultViewModel(
                 flushPendingDelete(u)
                     val idx = container.vaultManager.loadIndex(u)
                     val res = container.transferEngine.import(
-                        u, sources, currentFolderId, idx,
+                        u, sources, targetFolder, idx,
                         isCancelled = { cancelFlag.get() },
                         onProgress = { done, total -> _transfer.value = _transfer.value?.copy(done = done, total = total) ?: TransferState(done, total, "导入中…") },
                         onCheckpoint = { i -> container.vaultManager.saveIndex(u, i) },

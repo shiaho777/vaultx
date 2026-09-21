@@ -49,7 +49,7 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 导入 .vlt 便携密文(需一次性密码)。 */
+    /** 导入 .vlt 便携密文(需一次性密码;密码数组由本方法接管,用完清零)。 */
     fun importVlt(source: TransferEngine.ImportSource, password: CharArray, onResult: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             _busy.value = "解密中…"
@@ -61,13 +61,15 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
             } catch (e: Throwable) {
                 _error.value = if (e is io.vaultx.app.core.crypto.WrongPasswordException) "密码错误" else "解密失败:${e.message}"
                 withContext(Dispatchers.Main) { onResult(false) }
+            } finally {
+                password.fill('\u0000')
             }
             _busy.value = null
             _files.value = container.sessionManager.listFiles()
         }
     }
 
-    /** 加密导出为 .vlt(一次性密码)。 */
+    /** 加密导出为 .vlt(一次性密码;密码数组由本方法接管,用完清零)。 */
     fun exportVlt(storedName: String, password: CharArray, output: OutputStream, onDone: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             _busy.value = "加密导出中…"
@@ -76,6 +78,8 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
                 withContext(Dispatchers.Main) { onDone() }
             } catch (e: Throwable) {
                 _error.value = "导出失败:${e.message}"
+            } finally {
+                password.fill('\u0000')
             }
             _busy.value = null
         }

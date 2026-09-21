@@ -358,6 +358,7 @@ fun SessionHomeScreen(
             title = "删除「${f.displayName}」?",
             text = "临时文件立即销毁。",
             confirmText = "删除",
+            danger = true,
             onConfirm = { vm.delete(f.storedName); deleteFor = null },
             onDismiss = { deleteFor = null },
         )
