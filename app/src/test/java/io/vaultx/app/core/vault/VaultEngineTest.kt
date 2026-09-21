@@ -179,6 +179,21 @@ class VaultEngineTest {
     }
 
     @Test
+    fun decoyPasswordEqualToRealIsRejected() {
+        val meta = manager.createVault("r", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("realpw"))
+        try {
+            manager.enableDecoy(unlocked, pw("realpw"))
+            fail("decoy password equal to real must be rejected")
+        } catch (_: IllegalArgumentException) {
+        }
+        assertFalse(manager.metaOf(meta.vaultId).hasDecoy)
+        // 与真密码不同即可正常开启
+        manager.enableDecoy(unlocked, pw("decoypw"))
+        assertTrue(manager.metaOf(meta.vaultId).hasDecoy)
+    }
+
+    @Test
     fun disableDecoyRequiresRealSession() {
         val meta = manager.createVault("r", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
         manager.enableDecoy(manager.unlock(meta.vaultId, pw("realpw")), pw("decoypw"))

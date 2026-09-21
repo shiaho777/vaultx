@@ -53,8 +53,14 @@ class VaultViewModel(
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query
 
-    private val _sortBy = MutableStateFlow(SortBy.NAME)
+    private val _sortBy = MutableStateFlow(
+        runCatching { SortBy.valueOf(container.settings.sortBy.value) }.getOrDefault(SortBy.NAME),
+    )
     val sortBy: StateFlow<SortBy> = _sortBy
+
+    /** 网格/列表视图(持久化)。 */
+    private val _viewMode = MutableStateFlow(container.settings.viewMode.value)
+    val viewMode: StateFlow<String> = _viewMode
 
     private val _transfer = MutableStateFlow<TransferState?>(null)
     val transfer: StateFlow<TransferState?> = _transfer
@@ -132,7 +138,14 @@ class VaultViewModel(
         })
 
     fun setQuery(q: String) { _query.value = q }
-    fun setSortBy(s: SortBy) { _sortBy.value = s }
+    fun setSortBy(s: SortBy) {
+        _sortBy.value = s
+        viewModelScope.launch { container.settings.setSortBy(s.name) }
+    }
+    fun setViewMode(mode: String) {
+        _viewMode.value = mode
+        viewModelScope.launch { container.settings.setViewMode(mode) }
+    }
     fun clearError() { _error.value = null }
     fun clearNotice() { _notice.value = null }
 
@@ -196,7 +209,10 @@ class VaultViewModel(
                     )
                     container.vaultManager.saveIndex(u, idx)
                     _index.value = idx
-                    _notice.value = "已导入 ${res.imported} 项"
+                    _notice.value = buildString {
+                        append("已导入 ${res.imported} 项")
+                        if (res.skipped > 0) append("(跳过 ${res.skipped} 个重复)")
+                    }
                 } catch (e: TransferEngine.TransferCancelledException) {
                     // 检查点已终存;重读让 UI 显示保留下的部分导入
                     val u = unlocked

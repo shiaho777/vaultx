@@ -386,6 +386,9 @@ class VaultManager(private val rootDir: File) {
             val meta = unlocked.meta
             val vaultId = unlocked.vaultId
 
+            // 诱骗密码与真密码相同 → 真链永远先命中,诱骗链形同虚设,必须拒绝
+            require(!tryRealPassword(meta, decoyPassword)) { "诱骗密码不能与真密码相同" }
+
             // 真索引转密文(若当前为明文)
             if (!meta.indexEncrypted) {
                 val idx = loadIndex(unlocked)

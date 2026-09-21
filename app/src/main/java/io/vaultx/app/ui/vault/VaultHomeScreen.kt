@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
@@ -40,6 +43,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
@@ -127,6 +131,7 @@ fun VaultHomeScreen(
     val selection by vm.selection.collectAsState()
     val query by vm.query.collectAsState()
     val sortBy by vm.sortBy.collectAsState()
+    val viewMode by vm.viewMode.collectAsState()
     val transfer by vm.transfer.collectAsState()
     val error by vm.error.collectAsState()
     val notice by vm.notice.collectAsState()
@@ -143,6 +148,7 @@ fun VaultHomeScreen(
     var deleteConfirm by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Set<String>?>(null) }
     var textPreview by remember { mutableStateOf<VaultEntry?>(null) }
+    var infoTarget by remember { mutableStateOf<VaultEntry?>(null) }
 
     // 拖拽移动状态:选中态下拖卡片到文件夹格子上
     var dragEntry by remember { mutableStateOf<VaultEntry?>(null) }
@@ -159,7 +165,17 @@ fun VaultHomeScreen(
     }
 
     val entries = vm.visibleEntries()
-    val meta = remember(index) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
+    // 从库设置返回(改名等)时重读 meta
+    var metaTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val meta = remember(index, metaTick) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, ev ->
+            if (ev == androidx.lifecycle.Lifecycle.Event.ON_RESUME) metaTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
     // 文件夹格子要显示子项数:一次聚合 parentId→count,避免每格全表扫
     val folderCounts = remember(index) {
         index?.entries?.groupingBy { it.parentId }?.eachCount() ?: emptyMap()
@@ -211,6 +227,17 @@ fun VaultHomeScreen(
         when {
             selection.isNotEmpty() -> vm.clearSelection()
             else -> vm.navigateUp()
+        }
+    }
+
+    /** 单点行为统一走这里:选模式切选;文件夹进入;文本预览;OTHER 弹菜单;媒体开查看器。 */
+    val onEntryTap: (VaultEntry) -> Unit = { entry ->
+        when {
+            selection.isNotEmpty() -> vm.toggleSelect(entry.id)
+            entry.isFolder -> vm.openFolder(entry)
+            isTextEntry(entry) -> textPreview = entry
+            entry.kind == MediaKind.OTHER -> overflowFor = entry
+            else -> onOpenEntry(entry)
         }
     }
 
@@ -268,6 +295,12 @@ fun VaultHomeScreen(
                         if (!searching) vm.setQuery("")
                     }) {
                         Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = "搜索")
+                    }
+                    IconButton(onClick = { vm.setViewMode(if (viewMode == "GRID") "LIST" else "GRID") }) {
+                        Icon(
+                            if (viewMode == "GRID") Icons.AutoMirrored.Filled.List else Icons.Filled.GridView,
+                            contentDescription = if (viewMode == "GRID") "列表视图" else "网格视图",
+                        )
                     }
                     IconButton(onClick = { sortMenu = true }) {
                         Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
@@ -382,6 +415,21 @@ fun VaultHomeScreen(
                         subtitle = if (query.isNotBlank()) "换个关键词试试" else "点右下角 + 导入文件或文件夹",
                         modifier = Modifier.weight(1f),
                     )
+                } else if (viewMode == "LIST") {
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(entries, key = { it.id }) { entry ->
+                            EntryListRow(
+                                entry = entry,
+                                vaultId = vaultId,
+                                childCount = if (entry.isFolder) folderCounts[entry.id] ?: 0 else null,
+                                selected = entry.id in selection,
+                                selectionMode = selection.isNotEmpty(),
+                                onClick = { onEntryTap(entry) },
+                                onLongClick = { vm.toggleSelect(entry.id) },
+                                onOverflow = { overflowFor = entry },
+                            )
+                        }
+                    }
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(112.dp),
@@ -426,20 +474,7 @@ fun VaultHomeScreen(
                                     dragOffset = Offset.Zero
                                 },
                                 onNeedThumb = { vm.ensureThumb(entry) },
-                                onClick = {
-                                    if (selection.isNotEmpty()) {
-                                        vm.toggleSelect(entry.id)
-                                    } else if (entry.isFolder) {
-                                        vm.openFolder(entry)
-                                    } else if (isTextEntry(entry)) {
-                                        textPreview = entry
-                                    } else if (entry.kind == MediaKind.OTHER) {
-                                        // 无内建预览的类型:直接给操作菜单而不是死路
-                                        overflowFor = entry
-                                    } else {
-                                        onOpenEntry(entry)
-                                    }
-                                },
+                                onClick = { onEntryTap(entry) },
                                 onLongClick = { vm.toggleSelect(entry.id) },
                                 onOverflow = { overflowFor = entry },
                             )
@@ -541,6 +576,10 @@ fun VaultHomeScreen(
                     moveDialog = true
                     overflowFor = null
                 },
+            )
+            DropdownMenuItem(
+                text = { Text("属性") },
+                onClick = { infoTarget = entry; overflowFor = null },
             )
             DropdownMenuItem(
                 text = { Text("删除", color = MaterialTheme.colorScheme.error) },
@@ -653,6 +692,34 @@ fun VaultHomeScreen(
         )
     }
 
+    // ---------- 条目属性 ----------
+    infoTarget?.let { entry ->
+        val fmt = remember { java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()) }
+        AlertDialog(
+            onDismissRequest = { infoTarget = null },
+            title = { Text(entry.name, style = MaterialTheme.typography.titleSmall) },
+            text = {
+                Column {
+                    InfoRow("类型", when (entry.kind) {
+                        MediaKind.IMAGE -> "图片"; MediaKind.VIDEO -> "视频"
+                        MediaKind.AUDIO -> "音频"; MediaKind.FOLDER -> "文件夹"
+                        MediaKind.OTHER -> "文件"
+                    })
+                    if (entry.isFolder) {
+                        InfoRow("包含", "${folderCounts[entry.id] ?: 0} 项")
+                    } else {
+                        InfoRow("大小", formatBytes(entry.sizeBytes))
+                    }
+                    entry.mimeType?.let { InfoRow("MIME", it) }
+                    InfoRow("位置", parentPathOf(entry, index))
+                    InfoRow("创建", fmt.format(java.util.Date(entry.createdAt)))
+                    InfoRow("修改", fmt.format(java.util.Date(entry.updatedAt)))
+                }
+            },
+            confirmButton = { TextButton(onClick = { infoTarget = null }) { Text("关闭") } },
+        )
+    }
+
     // ---------- 删除确认 ----------
     if (deleteConfirm) {
         io.vaultx.app.ui.components.ConfirmDialog(
@@ -679,6 +746,89 @@ private fun folderPathOf(
         cur = p.parentId
     }
     return parts.joinToString(" / ")
+}
+
+/** 条目所在目录的路径标签(属性对话框用):"根目录 / a / b"。 */
+private fun parentPathOf(
+    entry: VaultEntry,
+    index: io.vaultx.app.core.vault.VaultIndex?,
+): String {
+    val parts = mutableListOf<String>()
+    var cur = entry.parentId
+    while (cur != null) {
+        val p = index?.find(cur) ?: break
+        parts.add(0, p.name)
+        cur = p.parentId
+    }
+    return if (parts.isEmpty()) "根目录" else parts.joinToString(" / ")
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(56.dp),
+        )
+        Text(value, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** 列表视图的行条目(与网格格子共享点击语义)。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EntryListRow(
+    entry: VaultEntry,
+    vaultId: String,
+    childCount: Int?,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onOverflow: () -> Unit,
+) {
+    Surface(
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (entry.hasThumb && entry.blobId != null && !entry.isFolder) {
+                AsyncImage(
+                    model = VaultImageRef(vaultId, entry.blobId, preferThumb = true),
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Icon(
+                    iconFor(entry.kind), null, Modifier.size(28.dp),
+                    tint = if (entry.isFolder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                Text(
+                    if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (selected) {
+                Icon(Icons.Filled.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            } else if (!selectionMode) {
+                IconButton(onClick = onOverflow, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.MoreVert, null, Modifier.size(18.dp))
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -781,7 +931,7 @@ private fun EntryCell(
                         entry.hasThumb && entry.blobId != null -> {
                             // 图/视频/音频共用加密缩略图;音视频叠个播放标示意可播
                             AsyncImage(
-                                model = VaultImageRef(vaultId, entry.blobId!!, preferThumb = true),
+                                model = VaultImageRef(vaultId, entry.blobId, preferThumb = true),
                                 contentDescription = entry.name,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop,

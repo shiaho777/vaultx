@@ -102,7 +102,8 @@ class TransferEngine(private val vaultManager: VaultManager) {
                 }
             }
             onProgress(done, total)
-            return ImportResult(imported = imported)
+            // skipped = 已计进度但未新增(同名同大小判重跳过)
+            return ImportResult(imported = imported, skipped = done - imported)
         } catch (e: Throwable) {
             // 终存一次:已完成的条目不丢(其 blob 均已完整落盘,索引与之一致)
             runCatching { onCheckpoint(index) }
@@ -134,13 +135,24 @@ class TransferEngine(private val vaultManager: VaultManager) {
                 kind = MediaKind.FOLDER,
                 parentId = parentId,
             )
+            val children = src.children()
             var n = 0
-            for (child in src.children()) {
+            for (child in children) {
                 n += importOne(unlocked, child, folder.id, index, isCancelled, onFileStart, onFileDone)
             }
+            // 空目录在 countFiles 里占 1 份进度,这里补上;非空目录进度全部由子项贡献
+            if (children.isEmpty()) onFileDone()
             return n
         }
         onFileStart(src.name)
+        // 同名同大小 = 已存在的重复文件:跳过,不产 "(2)" 副本
+        val isDup = src.sizeBytes > 0 && index.childrenOf(parentId).any {
+            !it.isFolder && it.name == src.name && it.sizeBytes == src.sizeBytes
+        }
+        if (isDup) {
+            onFileDone()
+            return 0
+        }
         val blobId = vaultManager.newBlobId()
         val sink = vaultManager.prepareBlobSink(unlocked.vaultId, blobId)
         try {

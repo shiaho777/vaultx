@@ -130,10 +130,43 @@ class TransferEngineTest {
     @Test
     fun importNameConflictGetsSuffix() {
         val index = VaultIndex()
+        // 同名但大小不同 → 不算重复,走 "(2)" 消解
         engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(1))), null, index)
-        engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(2))), null, index)
-        engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(3))), null, index)
+        engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(2, 2))), null, index)
+        engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(3, 3, 3))), null, index)
         assertEquals(listOf("a.jpg", "a (2).jpg", "a (3).jpg"), index.entries.map { it.name })
+    }
+
+    @Test
+    fun importSameNameAndSizeIsSkipped() {
+        val index = VaultIndex()
+        val r1 = engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(1, 2, 3))), null, index)
+        assertEquals(1, r1.imported)
+        assertEquals(0, r1.skipped)
+        // 同名同大小 → 判重跳过,不产副本
+        val r2 = engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(9, 9, 9))), null, index)
+        assertEquals(0, r2.imported)
+        assertEquals(1, r2.skipped)
+        assertEquals(1, index.entries.size)
+        // 同名不同大小 → 不跳过
+        val r3 = engine.import(unlocked, listOf(MemFile("a.jpg", byteArrayOf(5))), null, index)
+        assertEquals(1, r3.imported)
+        assertEquals("a (2).jpg", index.entries.last().name)
+    }
+
+    @Test
+    fun importEmptyDirStillReportsProgress() {
+        val index = VaultIndex()
+        val progress = mutableListOf<Pair<Int, Int>>()
+        engine.import(
+            unlocked,
+            listOf(MemDir("empty", emptyList()), MemFile("a.txt", byteArrayOf(1))),
+            null,
+            index,
+            onProgress = { d, t -> progress.add(d to t) },
+        )
+        // 空目录占 1 份进度:最终 done 必须到达 total=2
+        assertEquals(2 to 2, progress.last())
     }
 
     @Test

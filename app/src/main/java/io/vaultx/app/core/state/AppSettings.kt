@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.vaultx.app.BuildConfig
 import kotlinx.coroutines.CoroutineScope
@@ -40,11 +41,33 @@ class AppSettings(context: Context, scope: CoroutineScope) {
         store.edit { it[KEY_FLAG_SECURE] = enabled }
     }
 
+    /** 文件排序偏好(SortBy 枚举名)。 */
+    val sortBy: StateFlow<String> = store.data
+        .map { it[KEY_SORT_BY] ?: DEFAULT_SORT_BY }
+        .stateIn(scope, SharingStarted.Eagerly, DEFAULT_SORT_BY)
+
+    suspend fun setSortBy(name: String) {
+        store.edit { it[KEY_SORT_BY] = name }
+    }
+
+    /** 浏览视图偏好("GRID"/"LIST")。 */
+    val viewMode: StateFlow<String> = store.data
+        .map { it[KEY_VIEW_MODE] ?: DEFAULT_VIEW_MODE }
+        .stateIn(scope, SharingStarted.Eagerly, DEFAULT_VIEW_MODE)
+
+    suspend fun setViewMode(mode: String) {
+        store.edit { it[KEY_VIEW_MODE] = mode }
+    }
+
     companion object {
         private val KEY_AUTO_LOCK_SECONDS = intPreferencesKey("auto_lock_seconds")
         private val KEY_FLAG_SECURE = booleanPreferencesKey("flag_secure")
+        private val KEY_SORT_BY = stringPreferencesKey("sort_by")
+        private val KEY_VIEW_MODE = stringPreferencesKey("view_mode")
 
         const val DEFAULT_AUTO_LOCK_SECONDS = 60
         val DEFAULT_FLAG_SECURE = !BuildConfig.DEBUG
+        const val DEFAULT_SORT_BY = "NAME"
+        const val DEFAULT_VIEW_MODE = "GRID"
     }
 }
