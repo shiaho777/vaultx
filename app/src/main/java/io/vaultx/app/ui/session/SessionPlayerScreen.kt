@@ -55,8 +55,11 @@ fun SessionPlayerScreen(
     onBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    val file = remember(storedName) { container.sessionManager.file(storedName) }
-    val fileMissing = remember(storedName) { !file.isFile }
+    // file() 对非法名直接 require 抛错——落到"文件已不存在"而不是崩
+    val file = remember(storedName) {
+        runCatching { container.sessionManager.file(storedName) }.getOrNull()
+    }
+    val fileMissing = file == null || !file.isFile
     val kind = remember(storedName) {
         container.sessionManager.listFiles().firstOrNull { it.storedName == storedName }?.kind
             ?: MediaKind.OTHER
@@ -77,7 +80,7 @@ fun SessionPlayerScreen(
             kind == MediaKind.IMAGE -> {
                 Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                     AsyncImage(
-                        model = file,
+                        model = file!!,
                         contentDescription = storedName,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
@@ -93,7 +96,7 @@ fun SessionPlayerScreen(
                                     playError = "播放失败:${error.errorCodeName}"
                                 }
                             })
-                            setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(file)))
+                            setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(file!!)))
                             prepare()
                             playWhenReady = true
                         }
@@ -123,7 +126,7 @@ fun SessionPlayerScreen(
                                     playError = "播放失败:${error.errorCodeName}"
                                 }
                             })
-                            setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(file)))
+                            setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(file!!)))
                             prepare()
                             playWhenReady = true
                         }

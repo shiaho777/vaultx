@@ -110,6 +110,7 @@ import io.vaultx.app.core.vault.VaultEntry
 import io.vaultx.app.ui.components.EmptyState
 import io.vaultx.app.ui.components.PasswordField
 import io.vaultx.app.ui.components.TransferProgressBar
+import io.vaultx.app.ui.components.TEXT_PREVIEW_MAX_BYTES
 import io.vaultx.app.ui.components.decodePreviewText
 import io.vaultx.app.ui.components.formatBytes
 import io.vaultx.app.ui.components.isTextFileName
@@ -476,6 +477,7 @@ fun VaultHomeScreen(
                                 subtitle = if (query.isNotBlank()) "位于:${parentPathOf(entry, index)}" else null,
                                 selected = entry.id in selection,
                                 selectionMode = selection.isNotEmpty(),
+                                onNeedThumb = { vm.ensureThumb(entry) },
                                 onClick = { onEntryTap(entry) },
                                 onLongClick = { vm.toggleSelect(entry.id) },
                                 onOverflow = { overflowFor = entry },
@@ -753,7 +755,8 @@ fun VaultHomeScreen(
                 runCatching {
                     val u = container.session.get(vaultId) ?: return@runCatching null
                     container.vaultManager.openBlobStream(u, entry.blobId!!).use {
-                        decodePreviewText(it.readBytes())
+                        // 索引里的 sizeBytes 只作 UI 参考——流可能更大,截到上限防内存膨胀
+                        decodePreviewText(it.readNBytes(TEXT_PREVIEW_MAX_BYTES.toInt() + 1))
                     }
                 }.getOrNull()
             }
@@ -849,9 +852,9 @@ fun VaultHomeScreen(
 
     // ---------- 删除确认 ----------
     if (deleteConfirm) {
-        // 级联:文件夹连子孙一起删,确认框如实显示总数
+        // 级联:文件夹连子孙一起删,确认框如实显示总数(去重:选了文件夹又选其子项只计一次)
         val doomedCount = remember(selection, index) {
-            selection.sumOf { id -> ((index?.descendantIds(id)?.size) ?: 0) + 1 }
+            selection.flatMap { id -> (index?.descendantIds(id) ?: emptySet()) + id }.toSet().size
         }
         io.vaultx.app.ui.components.ConfirmDialog(
             title = "删除 $doomedCount 项?",
@@ -922,10 +925,19 @@ private fun EntryListRow(
     subtitle: String? = null,
     selected: Boolean,
     selectionMode: Boolean,
+    onNeedThumb: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOverflow: () -> Unit,
 ) {
+    // 列表模式也要懒生成缩略图(VM 内 in-flight 去重,重复调用安全)
+    androidx.compose.runtime.LaunchedEffect(entry.id) {
+        if (!entry.isFolder && !entry.hasThumb &&
+            (entry.kind == MediaKind.IMAGE || entry.kind == MediaKind.VIDEO || entry.kind == MediaKind.AUDIO)
+        ) {
+            onNeedThumb()
+        }
+    }
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer
         else MaterialTheme.colorScheme.surface,

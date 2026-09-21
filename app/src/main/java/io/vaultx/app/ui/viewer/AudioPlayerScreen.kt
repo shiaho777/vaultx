@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -84,6 +85,9 @@ fun AudioPlayerScreen(
     var hasNext by remember { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    // 拖动期间本地预览位置,松手才真 seek——拖动中逐帧 seek 会反复重开解密通道
+    var seekDragging by remember { mutableStateOf(false) }
+    var seekPreview by remember { mutableFloatStateOf(0f) }
 
     val player = remember(unlocked) {
         if (unlocked == null || audios.isEmpty()) {
@@ -173,14 +177,22 @@ fun AudioPlayerScreen(
                 }
                 Spacer(Modifier.height(32.dp))
                 Slider(
-                    value = if (duration > 0) position.toFloat() / duration else 0f,
-                    onValueChange = { f ->
-                        if (duration > 0) player.seekTo((f * duration).toLong())
+                    value = if (seekDragging) {
+                        seekPreview
+                    } else if (duration > 0) {
+                        position.toFloat() / duration
+                    } else {
+                        0f
+                    },
+                    onValueChange = { f -> seekDragging = true; seekPreview = f },
+                    onValueChangeFinished = {
+                        if (duration > 0) player.seekTo((seekPreview * duration).toLong())
+                        seekDragging = false
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "${fmt(position)} / ${fmt(duration)}",
+                    "${fmt(if (seekDragging) (seekPreview * duration).toLong() else position)} / ${fmt(duration)}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

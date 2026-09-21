@@ -373,8 +373,11 @@ fun LockedHomeScreen(
                             container.vaultManager.unlock(meta.vaultId, password.toCharArray(), rewrapParams = KdfParams.DEFAULT)
                         }
                     }.onSuccess { u ->
-                        unlockTarget = null
-                        onUnlocked(u)
+                        // 对话框若在派生期间被取消,绝不能照旧开门
+                        if (unlockTarget != null) {
+                            unlockTarget = null
+                            onUnlocked(u)
+                        }
                     }.onFailure { e ->
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         reportError(if (e is WrongPasswordException) "密码错误" else "解锁失败:${e.message}")
@@ -704,17 +707,35 @@ private fun UnlockDialog(
 ) {
     var pw by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    fun tryUnlock() {
+        if (pw.isNotEmpty() && !busy) {
+            busy = true
+            onUnlock(pw) {
+                busy = false
+                err = it
+            }
+        }
+    }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("解锁「${meta.name}」") },
         text = {
             Column(Modifier.imePadding()) {
                 PasswordField(
                     pw, { pw = it; err = null }, "密码",
                     isError = err != null, supportingText = err,
-                    onImeAction = { if (pw.isNotEmpty()) onUnlock(pw) { err = it } },
+                    onImeAction = { tryUnlock() },
                 )
-                if (hasBio) {
+                if (busy) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("派生密钥中…", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                if (hasBio && !busy) {
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = onBiometric) {
                         Icon(Icons.Filled.Fingerprint, null, Modifier.size(18.dp))
@@ -725,8 +746,8 @@ private fun UnlockDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { if (pw.isNotEmpty()) onUnlock(pw) { err = it } }) { Text("解锁") }
+            TextButton(onClick = { tryUnlock() }, enabled = !busy) { Text("解锁") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") } },
     )
 }
