@@ -39,6 +39,8 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -130,6 +132,11 @@ fun VaultHomeScreen(
     onBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    // 长按进选择态给触感反馈——没有它用户不确定手势是否生效
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val longPressHaptic = {
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+    }
     val vm: VaultViewModel = viewModel(key = "vault-$vaultId") { VaultViewModel(container, vaultId) }
 
     val index by vm.index.collectAsState()
@@ -137,6 +144,7 @@ fun VaultHomeScreen(
     val selection by vm.selection.collectAsState()
     val query by vm.query.collectAsState()
     val sortBy by vm.sortBy.collectAsState()
+    val sortReversed by vm.sortReversed.collectAsState()
     val viewMode by vm.viewMode.collectAsState()
     val transfer by vm.transfer.collectAsState()
     val error by vm.error.collectAsState()
@@ -178,7 +186,7 @@ fun VaultHomeScreen(
     }
 
     // 排序结果只在输入变化时重算——拖拽/进度等高频重组不能每帧重排全表
-    val entries = remember(index, folderStack, query, sortBy) { vm.visibleEntries() }
+    val entries = remember(index, folderStack, query, sortBy, sortReversed) { vm.visibleEntries() }
     // 从库设置返回(改名等)时重读 meta
     var metaTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val meta = remember(index, metaTick) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
@@ -367,9 +375,16 @@ fun VaultHomeScreen(
                     DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                         SortBy.entries.forEach { s ->
                             DropdownMenuItem(
+                                // 当前档显示方向箭头(再点翻转),其他档显示勾位
                                 text = { Text(s.label) },
                                 onClick = { vm.setSortBy(s); sortMenu = false },
-                                trailingIcon = { if (s == sortBy) Icon(Icons.Filled.Check, null) },
+                                trailingIcon = {
+                                    if (s == sortBy) Icon(
+                                        if (sortReversed) Icons.Filled.ArrowUpward
+                                        else Icons.Filled.ArrowDownward,
+                                        contentDescription = "再点翻转方向",
+                                    )
+                                },
                             )
                         }
                     }
@@ -491,7 +506,7 @@ fun VaultHomeScreen(
                                 selectionMode = selection.isNotEmpty(),
                                 onNeedThumb = { vm.ensureThumb(entry) },
                                 onClick = { onEntryTap(entry) },
-                                onLongClick = { vm.toggleSelect(entry.id) },
+                                onLongClick = { longPressHaptic(); vm.toggleSelect(entry.id) },
                                 onOverflow = { overflowFor = entry },
                             )
                         }
@@ -566,7 +581,7 @@ fun VaultHomeScreen(
                                 },
                                 onNeedThumb = { vm.ensureThumb(entry) },
                                 onClick = { onEntryTap(entry) },
-                                onLongClick = { vm.toggleSelect(entry.id) },
+                                onLongClick = { longPressHaptic(); vm.toggleSelect(entry.id) },
                                 onOverflow = { overflowFor = entry },
                             )
                         }
@@ -749,14 +764,24 @@ fun VaultHomeScreen(
             .filter { it.isFolder && it.id !in excluded }
             .map { it to folderPathOf(it, idx) }
             .sortedBy { it.second }
+        // 全部选中项同一父目录时标出"当前位置",避免无意义点选
+        val currentParent = remember(selection, idx) {
+            idx?.let { i -> selection.mapNotNull { i.find(it)?.parentId }.distinct().singleOrNull() }
+        }
         AlertDialog(
             onDismissRequest = { moveDialog = false },
             title = { Text("移动到") },
             text = {
                 Column(Modifier.height(280.dp).verticalScroll(rememberScrollState())) {
-                    MoveTargetRow("根目录", onClick = { vm.moveEntries(selection, null); moveDialog = false })
+                    MoveTargetRow(
+                        if (currentParent == null) "根目录(当前)" else "根目录",
+                        onClick = { vm.moveEntries(selection, null); moveDialog = false },
+                    )
                     folders.forEach { (f, path) ->
-                        MoveTargetRow(path, onClick = { vm.moveEntries(selection, f.id); moveDialog = false })
+                        MoveTargetRow(
+                            if (f.id == currentParent) "$path(当前)" else path,
+                            onClick = { vm.moveEntries(selection, f.id); moveDialog = false },
+                        )
                     }
                 }
             },
@@ -819,7 +844,14 @@ fun VaultHomeScreen(
                         MediaKind.OTHER -> "文件"
                     })
                     if (entry.isFolder) {
-                        InfoRow("包含", "${folderCounts[entry.id] ?: 0} 项")
+                        // 直接子项数 + 递归子孙数与总大小——"这个文件夹占多少空间"是常见诉求
+                        val desc = remember(entry.id, index) {
+                            index?.let { i ->
+                                i.descendantIds(entry.id).mapNotNull { i.find(it) }
+                            } ?: emptyList()
+                        }
+                        InfoRow("包含", "${folderCounts[entry.id] ?: 0} 项(共 ${desc.size} 个子孙条目)")
+                        InfoRow("总大小", formatBytes(desc.sumOf { it.sizeBytes }))
                     } else {
                         InfoRow("大小", formatBytes(entry.sizeBytes))
                     }

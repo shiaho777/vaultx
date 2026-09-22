@@ -58,6 +58,10 @@ class VaultViewModel(
     )
     val sortBy: StateFlow<SortBy> = _sortBy
 
+    /** 当前档方向是否翻转(会话内状态,不持久化——默认方向已足够直觉)。 */
+    private val _sortReversed = MutableStateFlow(false)
+    val sortReversed: StateFlow<Boolean> = _sortReversed
+
     /** 网格/列表视图(持久化)。 */
     private val _viewMode = MutableStateFlow(container.settings.viewMode.value)
     val viewMode: StateFlow<String> = _viewMode
@@ -127,24 +131,32 @@ class VaultViewModel(
         return sortEntries(base)
     }
 
-    private fun sortEntries(list: List<VaultEntry>): List<VaultEntry> =
-        list.sortedWith(
-            compareByDescending<VaultEntry> { it.isFolder }
-                .thenComparing { a, b ->
-                    when (_sortBy.value) {
-                        SortBy.NAME -> NAME_COLLATOR.compare(a.name, b.name)
-                        SortBy.TIME -> b.updatedAt.compareTo(a.updatedAt)
-                        SortBy.SIZE -> b.sizeBytes.compareTo(a.sizeBytes)
-                        SortBy.KIND -> a.kind.compareTo(b.kind)
-                    }
+    private fun sortEntries(list: List<VaultEntry>): List<VaultEntry> {
+        val base = compareByDescending<VaultEntry> { it.isFolder }
+            .thenComparing { a, b ->
+                // 各档默认方向:名称升序,时间/大小降序(新的/大的在前),类型升序
+                val c = when (_sortBy.value) {
+                    SortBy.NAME -> NAME_COLLATOR.compare(a.name, b.name)
+                    SortBy.TIME -> b.updatedAt.compareTo(a.updatedAt)
+                    SortBy.SIZE -> b.sizeBytes.compareTo(a.sizeBytes)
+                    SortBy.KIND -> a.kind.compareTo(b.kind)
                 }
-                // 等值键按名称决胜,保证顺序稳定可预期(否则每次重组可能换位)
-                .thenComparing { a, b -> NAME_COLLATOR.compare(a.name, b.name) },
-        )
+                if (_sortReversed.value) -c else c
+            }
+            // 等值键按名称决胜,保证顺序稳定可预期(否则每次重组可能换位)
+            .thenComparing { a, b -> NAME_COLLATOR.compare(a.name, b.name) }
+        return list.sortedWith(base)
+    }
 
     fun setQuery(q: String) { _query.value = q }
+    /** 选排序档位:再点当前档 → 翻转方向;换档 → 该档默认方向。 */
     fun setSortBy(s: SortBy) {
-        _sortBy.value = s
+        if (s == _sortBy.value) {
+            _sortReversed.value = !_sortReversed.value
+        } else {
+            _sortBy.value = s
+            _sortReversed.value = false
+        }
         viewModelScope.launch { container.settings.setSortBy(s.name) }
     }
     fun setViewMode(mode: String) {

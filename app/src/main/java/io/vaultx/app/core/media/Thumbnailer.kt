@@ -17,6 +17,11 @@ class Thumbnailer(private val vaultManager: VaultManager) {
 
     private val maxEdge = 512
 
+    companion object {
+        /** 视频抽帧探测点(微秒):1 秒处——0 点常是黑场/片头渐隐帧。 */
+        private const val FRAME_PROBE_US = 1_000_000L
+    }
+
     /** 生成缩略图 bytes;不支持的类型返回 null。 */
     fun generate(unlocked: UnlockedVault, blobId: String, kind: MediaKind): ByteArray? = when (kind) {
         MediaKind.IMAGE -> imageThumb(unlocked, blobId)
@@ -84,8 +89,15 @@ class Thumbnailer(private val vaultManager: VaultManager) {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(VaultMediaDataSource(vaultManager, unlocked, blobId))
-            retriever.frameAtTime?.let { frame ->
-                val scaled = scaleDown(frame)
+            // 音频:优先内嵌封面(embeddedPicture);视频:抽 1s 处帧
+            // (首帧常是黑场),拿不到再退回首帧
+            retriever.embeddedPicture?.let { return@runCatching it }
+            val frame = retriever.getFrameAtTime(
+                FRAME_PROBE_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+            ) ?: retriever.frameAtTime
+            frame?.let {
+                val scaled = scaleDown(it)
+                if (scaled !== it) it.recycle()
                 val out = ByteArrayOutputStream()
                 scaled.compress(Bitmap.CompressFormat.JPEG, 82, out)
                 out.toByteArray()
