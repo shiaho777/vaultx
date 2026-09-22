@@ -128,14 +128,19 @@ class VaultViewModel(
     }
 
     private fun sortEntries(list: List<VaultEntry>): List<VaultEntry> =
-        list.sortedWith(compareByDescending<VaultEntry> { it.isFolder }.thenComparing { a, b ->
-            when (_sortBy.value) {
-                SortBy.NAME -> a.name.compareTo(b.name, ignoreCase = true)
-                SortBy.TIME -> b.updatedAt.compareTo(a.updatedAt)
-                SortBy.SIZE -> b.sizeBytes.compareTo(a.sizeBytes)
-                SortBy.KIND -> a.kind.compareTo(b.kind)
-            }
-        })
+        list.sortedWith(
+            compareByDescending<VaultEntry> { it.isFolder }
+                .thenComparing { a, b ->
+                    when (_sortBy.value) {
+                        SortBy.NAME -> NAME_COLLATOR.compare(a.name, b.name)
+                        SortBy.TIME -> b.updatedAt.compareTo(a.updatedAt)
+                        SortBy.SIZE -> b.sizeBytes.compareTo(a.sizeBytes)
+                        SortBy.KIND -> a.kind.compareTo(b.kind)
+                    }
+                }
+                // 等值键按名称决胜,保证顺序稳定可预期(否则每次重组可能换位)
+                .thenComparing { a, b -> NAME_COLLATOR.compare(a.name, b.name) },
+        )
 
     fun setQuery(q: String) { _query.value = q }
     fun setSortBy(s: SortBy) {
@@ -412,6 +417,48 @@ class VaultViewModel(
         }
     }
 
+    /**
+     * 库内复制副本:解密流 → 新 blob 加密 → 索引加 "name (2)" 条目。
+     * 明文只在流里过,不落地;失败清理半成品 blob。
+     */
+    fun duplicateEntry(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                flushPendingDelete(u)
+                val idx = container.vaultManager.loadIndex(u)
+                val src = idx.find(id) ?: return@withLock
+                val srcBlob = src.blobId
+                if (src.isFolder || srcBlob == null) return@withLock
+                val newBlob = container.vaultManager.newBlobId()
+                val sink = container.vaultManager.prepareBlobSink(u.vaultId, newBlob)
+                try {
+                    container.vaultManager.openBlobStream(u, srcBlob).use { dec ->
+                        sink.outputStream().use { raw ->
+                            u.crypto.encryptingStream(
+                                raw, io.vaultx.app.core.crypto.VaultCrypto.blobAd(u.vaultId, newBlob),
+                            ).use { enc -> dec.copyTo(enc) }
+                        }
+                    }
+                } catch (e: Throwable) {
+                    container.vaultManager.deleteBlob(u.vaultId, newBlob)
+                    _error.value = "复制失败:${e.message}"
+                    return@withLock
+                }
+                idx.addEntry(
+                    name = container.transferEngine.uniqueName(src.name, idx, src.parentId),
+                    kind = src.kind,
+                    blobId = newBlob,
+                    sizeBytes = src.sizeBytes,
+                    parentId = src.parentId,
+                    mimeType = src.mimeType,
+                )
+                persist(u, idx)
+                _notice.value = "已创建副本"
+            }
+        }
+    }
+
     // ---------------- 导出 ----------------
 
     fun exportEntries(ids: Set<String>, sinkFactory: TransferEngine.ExportSinkFactory) {
@@ -477,6 +524,9 @@ class VaultViewModel(
                         persist(u2, idx)
                     }
                 }
+            } catch (_: Throwable) {
+                // 缩略图是尽力而为的增强:锁定中途/解码失败都不该冒泡成崩溃,
+                // 残留的 thumb 文件由 deleteBlob/sweepOrphanBlobs 收尾
             } finally {
                 thumbInFlight.remove(blobId)
             }
@@ -494,5 +544,14 @@ class VaultViewModel(
     companion object {
         /** 删除撤销窗口:blob 延迟删除时长,窗口内可整批恢复。 */
         private const val UNDO_WINDOW_MS = 8_000L
+
+        /**
+         * 中文文件名按拼音序排列的 Collator(Comparator 接口线程安全);
+         * 比 codepoint 序更符合中文用户直觉("文档"排在"图片"后)。
+         */
+        private val NAME_COLLATOR: java.text.Collator =
+            java.text.Collator.getInstance(java.util.Locale.CHINA).apply {
+                strength = java.text.Collator.PRIMARY // 忽略大小写/音调差异
+            }
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -310,14 +311,20 @@ fun VaultHomeScreen(
                             onValueChange = { vm.setQuery(it) },
                             placeholder = { Text("搜索文件名") },
                             singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                imeAction = androidx.compose.ui.text.input.ImeAction.Search,
+                            ),
                             modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
                         )
                     } else {
                         Column {
                             Text(meta?.name ?: "保险库", style = MaterialTheme.typography.titleMedium)
                             if (folderStack.isNotEmpty()) {
-                                // 可点面包屑:任意段直接跳回
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                // 可点面包屑:任意段直接跳回;深路径横向可滚不被裁
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                ) {
                                     Text(
                                         "根目录",
                                         style = MaterialTheme.typography.labelSmall,
@@ -462,11 +469,16 @@ fun VaultHomeScreen(
                     }
                 }
                 if (entries.isEmpty()) {
-                    EmptyState(
-                        title = if (query.isNotBlank()) "没有匹配的文件" else "这里是空的",
-                        subtitle = if (query.isNotBlank()) "换个关键词试试" else "点右下角 + 导入文件或文件夹",
-                        modifier = Modifier.weight(1f),
-                    )
+                    // 传输进行中不闪"空目录"——进度条已占位,导入完自然填充
+                    if (transfer == null) {
+                        EmptyState(
+                            title = if (query.isNotBlank()) "没有匹配的文件" else "这里是空的",
+                            subtitle = if (query.isNotBlank()) "换个关键词试试" else "点右下角 + 导入文件或文件夹",
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
                 } else if (viewMode == "LIST") {
                     LazyColumn(Modifier.weight(1f)) {
                         items(entries, key = { it.id }) { entry ->
@@ -636,6 +648,12 @@ fun VaultHomeScreen(
                 text = { Text("重命名") },
                 onClick = { renameTarget = entry; overflowFor = null },
             )
+            if (!entry.isFolder && entry.blobId != null) {
+                DropdownMenuItem(
+                    text = { Text("创建副本") },
+                    onClick = { vm.duplicateEntry(entry.id); overflowFor = null },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("导出") },
                 onClick = {

@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -158,10 +159,24 @@ fun AudioPlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Icon(
-                    Icons.Filled.AudioFile, null, Modifier.size(96.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                // 有加密缩略图(内嵌封面/抽帧)时作封面,否则通用图标
+                val cur = audios.getOrNull(mediaIndex)
+                val artBlob = cur?.takeIf { it.hasThumb }?.blobId
+                if (artBlob != null) {
+                    coil3.compose.AsyncImage(
+                        model = io.vaultx.app.core.media.VaultImageRef(vaultId, artBlob, preferThumb = true),
+                        contentDescription = cur?.name,
+                        modifier = Modifier
+                            .size(160.dp)
+                            .clip(MaterialTheme.shapes.medium),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.AudioFile, null, Modifier.size(96.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Spacer(Modifier.height(20.dp))
                 Text(
                     audios.getOrNull(mediaIndex)?.name ?: "",
