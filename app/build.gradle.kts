@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -17,6 +19,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val props = Properties()
+            val propsFile = rootProject.file("keystore.properties")
+            if (propsFile.exists()) {
+                propsFile.inputStream().use { props.load(it) }
+            }
+            storeFile = file(props.getProperty("storeFile") ?: System.getenv("VAULTX_STORE_FILE") ?: "")
+            storePassword = props.getProperty("storePassword") ?: System.getenv("VAULTX_STORE_PASSWORD")
+            keyAlias = props.getProperty("keyAlias") ?: System.getenv("VAULTX_KEY_ALIAS")
+            keyPassword = props.getProperty("keyPassword") ?: System.getenv("VAULTX_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -25,6 +41,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
