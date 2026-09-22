@@ -65,22 +65,33 @@ fun ImageViewerScreen(
     onBack: () -> Unit = {},
 ) {
     val unlocked = container.session.get(vaultId)
-    // 同目录全部图片(与网格一致的名称排序),翻页范围
-    val images = remember(unlocked) {
-        unlocked?.let { u ->
-            runCatching {
-                val idx = container.vaultManager.loadIndex(u)
-                val me = idx.find(entryId)
-                idx.entries
-                    .filter { it.kind == MediaKind.IMAGE && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
-                    .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
-            }.getOrDefault(emptyList())
-        } ?: emptyList()
+    // 同目录全部图片(与网格一致的名称排序),翻页范围;
+    // null=加载中——索引读盘走 IO 线程,不在组合时占主线程
+    val images by androidx.compose.runtime.produceState<List<io.vaultx.app.core.vault.VaultEntry>?>(
+        initialValue = null, unlocked,
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            unlocked?.let { u ->
+                runCatching {
+                    val idx = container.vaultManager.loadIndex(u)
+                    val me = idx.find(entryId)
+                    idx.entries
+                        .filter { it.kind == MediaKind.IMAGE && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
+                        .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
+                }.getOrDefault(emptyList())
+            } ?: emptyList()
+        }
     }
+    val imgs = images
 
-    val pagerState = rememberPagerState(
-        initialPage = images.indexOfFirst { it.id == entryId }.coerceAtLeast(0),
-    ) { images.size }
+    // 列表到位才建 Pager——initialPage 必须一开始就指向被点的那张
+    val pagerState = if (imgs == null) {
+        null
+    } else {
+        rememberPagerState(
+            initialPage = imgs.indexOfFirst { it.id == entryId }.coerceAtLeast(0),
+        ) { imgs.size }
+    }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -89,10 +100,12 @@ fun ImageViewerScreen(
     var chromeVisible by remember { mutableStateOf(true) }
 
     // 翻页时重置缩放与适配尺寸
-    LaunchedEffect(pagerState.currentPage) {
-        scale = 1f
-        offset = Offset.Zero
-        imageSize = Size.Unspecified
+    if (pagerState != null) {
+        LaunchedEffect(pagerState.currentPage) {
+            scale = 1f
+            offset = Offset.Zero
+            imageSize = Size.Unspecified
+        }
     }
 
     /** 图片经 ContentScale.Fit 适配后的实际显示尺寸。 */
@@ -159,7 +172,9 @@ fun ImageViewerScreen(
             },
         contentAlignment = Alignment.Center,
     ) {
-        if (images.isEmpty()) {
+        if (imgs == null) {
+            androidx.compose.material3.CircularProgressIndicator()
+        } else if (imgs.isEmpty()) {
             Text(
                 "无法打开该文件",
                 color = Color.White,
@@ -167,13 +182,13 @@ fun ImageViewerScreen(
             )
         } else {
             HorizontalPager(
-                state = pagerState,
+                state = pagerState!!,
                 // 已放大时禁用翻页,位移全部归图片拖动
                 userScrollEnabled = scale <= 1.01f,
                 modifier = Modifier.fillMaxSize(),
-                key = { images[it].id },
+                key = { imgs[it].id },
             ) { page ->
-                val e = images[page]
+                val e = imgs[page]
                 AsyncImage(
                     model = VaultImageRef(vaultId, e.blobId!!, preferThumb = false),
                     contentDescription = e.name,
@@ -213,15 +228,15 @@ fun ImageViewerScreen(
                 }
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    images.getOrNull(pagerState.currentPage)?.name ?: "",
+                    if (pagerState != null) imgs?.getOrNull(pagerState.currentPage)?.name ?: "" else "",
                     color = Color.White,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
-                if (images.size > 1) {
+                if (pagerState != null && (imgs?.size ?: 0) > 1) {
                     Text(
-                        "${pagerState.currentPage + 1} / ${images.size}",
+                        "${pagerState.currentPage + 1} / ${imgs?.size ?: 0}",
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(end = 16.dp),

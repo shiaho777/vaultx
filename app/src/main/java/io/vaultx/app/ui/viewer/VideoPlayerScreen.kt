@@ -55,30 +55,36 @@ fun VideoPlayerScreen(
 ) {
     val context = LocalContext.current
     val unlocked = container.session.get(vaultId)
-    // 同目录全部视频(名称排序),构成播放列表;播完自动进下一条
-    val videos = remember(unlocked) {
-        unlocked?.let { u ->
-            runCatching {
-                val idx = container.vaultManager.loadIndex(u)
-                val me = idx.find(entryId)
-                idx.entries
-                    .filter { it.kind == MediaKind.VIDEO && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
-                    .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
-            }.getOrDefault(emptyList())
-        } ?: emptyList()
+    // 同目录全部视频(名称排序),构成播放列表;null=加载中——索引读盘走 IO 线程
+    val videos by androidx.compose.runtime.produceState<List<io.vaultx.app.core.vault.VaultEntry>?>(
+        initialValue = null, unlocked,
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            unlocked?.let { u ->
+                runCatching {
+                    val idx = container.vaultManager.loadIndex(u)
+                    val me = idx.find(entryId)
+                    idx.entries
+                        .filter { it.kind == MediaKind.VIDEO && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
+                        .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
+                }.getOrDefault(emptyList())
+            } ?: emptyList()
+        }
     }
-    val sizes = remember(videos) {
-        videos.mapNotNull { e -> e.blobId?.let { it to e.sizeBytes } }.toMap()
+    val vids = videos
+    val sizes = remember(vids) {
+        vids?.mapNotNull { e -> e.blobId?.let { it to e.sizeBytes } }?.toMap() ?: emptyMap()
     }
-    val startIndex = videos.indexOfFirst { it.id == entryId }.coerceAtLeast(0)
+    val startIndex = vids?.indexOfFirst { it.id == entryId }?.coerceAtLeast(0) ?: 0
 
     var playError by remember { mutableStateOf<String?>(null) }
     var mediaIndex by remember { mutableIntStateOf(startIndex) }
     var hasPrev by remember { mutableStateOf(false) }
     var hasNext by remember { mutableStateOf(false) }
 
-    val player = remember(unlocked) {
-        if (unlocked == null || videos.isEmpty()) {
+    // 列表到位才建播放器——startIndex 必须一开始就指向被点的那条
+    val player = remember(vids) {
+        if (unlocked == null || vids.isNullOrEmpty()) {
             null
         } else {
             val factory = VaultDataSource.Factory(unlocked, container.vaultManager, sizes)
@@ -101,7 +107,7 @@ fun VideoPlayerScreen(
                         }
                     })
                     setMediaItems(
-                        videos.map { MediaItem.fromUri("vaultx://$vaultId/${it.blobId}") },
+                        vids.map { MediaItem.fromUri("vaultx://$vaultId/${it.blobId}") },
                         startIndex, 0L,
                     )
                     prepare()
@@ -131,11 +137,15 @@ fun VideoPlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
             ) {
-                Text(
-                    playError ?: "无法打开该视频",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+                if (playError == null && vids == null) {
+                    androidx.compose.material3.CircularProgressIndicator()
+                } else {
+                    Text(
+                        playError ?: "无法打开该视频",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
             }
         }
 
@@ -154,13 +164,13 @@ fun VideoPlayerScreen(
             }
             Spacer(Modifier.width(4.dp))
             Text(
-                videos.getOrNull(mediaIndex)?.name ?: "",
+                vids?.getOrNull(mediaIndex)?.name ?: "",
                 color = Color.White,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
-            if (videos.size > 1) {
+            if ((vids?.size ?: 0) > 1) {
                 IconButton(
                     onClick = { player?.seekToPreviousMediaItem() },
                     enabled = hasPrev,

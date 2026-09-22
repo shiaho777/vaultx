@@ -34,18 +34,28 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
 
     fun clearError() { _error.value = null }
 
+    /**
+     * 导入文件或文件夹(树源递归拍平进会话目录——会话是平铺命名空间,
+     * 重名由 SessionManager.importFile 的 unique 消解)。
+     */
     fun import(sources: List<TransferEngine.ImportSource>) {
         viewModelScope.launch(Dispatchers.IO) {
             _busy.value = "导入中…"
             try {
-                for (src in sources) {
-                    src.open().use { ins -> container.sessionManager.importFile(src.name, ins) }
-                }
+                sources.forEach { importRecursive(it) }
             } catch (e: Throwable) {
                 _error.value = "导入失败:${e.message}"
             }
             _busy.value = null
             _files.value = container.sessionManager.listFiles()
+        }
+    }
+
+    private fun importRecursive(src: TransferEngine.ImportSource) {
+        if (src.isDirectory) {
+            src.children().forEach { importRecursive(it) }
+        } else {
+            src.open().use { ins -> container.sessionManager.importFile(src.name, ins) }
         }
     }
 

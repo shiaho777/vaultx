@@ -284,9 +284,11 @@ fun VaultHomeScreen(
         }
     }
 
-    BackHandler(enabled = folderStack.isNotEmpty() || selection.isNotEmpty()) {
+    // 返回优先级:清选择 → 关搜索 → 上一层目录 → 系统返回
+    BackHandler(enabled = selection.isNotEmpty() || searching || folderStack.isNotEmpty()) {
         when {
             selection.isNotEmpty() -> vm.clearSelection()
+            searching -> { searching = false; vm.setQuery("") }
             else -> vm.navigateUp()
         }
     }
@@ -663,7 +665,8 @@ fun VaultHomeScreen(
                 text = { Text("重命名") },
                 onClick = { renameTarget = entry; overflowFor = null },
             )
-            if (!entry.isFolder && entry.blobId != null) {
+            // 文件/文件夹都可副本——文件夹走 VM 的递归复制(子孙 blob 逐个重加密)
+            if (entry.isFolder || entry.blobId != null) {
                 DropdownMenuItem(
                     text = { Text("创建副本") },
                     onClick = { vm.duplicateEntry(entry.id); overflowFor = null },

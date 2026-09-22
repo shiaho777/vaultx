@@ -63,21 +63,27 @@ fun AudioPlayerScreen(
 ) {
     val context = LocalContext.current
     val unlocked = container.session.get(vaultId)
-    val audios = remember(unlocked) {
-        unlocked?.let { u ->
-            runCatching {
-                val idx = container.vaultManager.loadIndex(u)
-                val me = idx.find(entryId)
-                idx.entries
-                    .filter { it.kind == MediaKind.AUDIO && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
-                    .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
-            }.getOrDefault(emptyList())
-        } ?: emptyList()
+    // null=加载中——索引读盘走 IO 线程,不在组合时占主线程
+    val audios by androidx.compose.runtime.produceState<List<io.vaultx.app.core.vault.VaultEntry>?>(
+        initialValue = null, unlocked,
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            unlocked?.let { u ->
+                runCatching {
+                    val idx = container.vaultManager.loadIndex(u)
+                    val me = idx.find(entryId)
+                    idx.entries
+                        .filter { it.kind == MediaKind.AUDIO && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
+                        .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
+                }.getOrDefault(emptyList())
+            } ?: emptyList()
+        }
     }
-    val sizes = remember(audios) {
-        audios.mapNotNull { e -> e.blobId?.let { it to e.sizeBytes } }.toMap()
+    val auds = audios
+    val sizes = remember(auds) {
+        auds?.mapNotNull { e -> e.blobId?.let { it to e.sizeBytes } }?.toMap() ?: emptyMap()
     }
-    val startIndex = audios.indexOfFirst { it.id == entryId }.coerceAtLeast(0)
+    val startIndex = auds?.indexOfFirst { it.id == entryId }?.coerceAtLeast(0) ?: 0
 
     var playError by remember { mutableStateOf<String?>(null) }
     var mediaIndex by remember { mutableIntStateOf(startIndex) }
@@ -90,8 +96,9 @@ fun AudioPlayerScreen(
     var seekDragging by remember { mutableStateOf(false) }
     var seekPreview by remember { mutableFloatStateOf(0f) }
 
-    val player = remember(unlocked) {
-        if (unlocked == null || audios.isEmpty()) {
+    // 列表到位才建播放器——startIndex 必须一开始就指向被点的那条
+    val player = remember(auds) {
+        if (unlocked == null || auds.isNullOrEmpty()) {
             null
         } else {
             val factory = VaultDataSource.Factory(unlocked, container.vaultManager, sizes)
@@ -120,7 +127,7 @@ fun AudioPlayerScreen(
                         }
                     })
                     setMediaItems(
-                        audios.map { MediaItem.fromUri("vaultx://$vaultId/${it.blobId}") },
+                        auds.map { MediaItem.fromUri("vaultx://$vaultId/${it.blobId}") },
                         startIndex, 0L,
                     )
                     prepare()
@@ -160,7 +167,7 @@ fun AudioPlayerScreen(
                 verticalArrangement = Arrangement.Center,
             ) {
                 // 有加密缩略图(内嵌封面/抽帧)时作封面,否则通用图标
-                val cur = audios.getOrNull(mediaIndex)
+                val cur = auds?.getOrNull(mediaIndex)
                 val artBlob = cur?.takeIf { it.hasThumb }?.blobId
                 if (artBlob != null) {
                     coil3.compose.AsyncImage(
@@ -179,13 +186,13 @@ fun AudioPlayerScreen(
                 }
                 Spacer(Modifier.height(20.dp))
                 Text(
-                    audios.getOrNull(mediaIndex)?.name ?: "",
+                    auds?.getOrNull(mediaIndex)?.name ?: "",
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                 )
-                if (audios.size > 1) {
+                if ((auds?.size ?: 0) > 1) {
                     Text(
-                        "${mediaIndex + 1} / ${audios.size}",
+                        "${mediaIndex + 1} / ${auds?.size ?: 0}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

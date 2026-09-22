@@ -430,8 +430,9 @@ class VaultViewModel(
     }
 
     /**
-     * 库内复制副本:解密流 → 新 blob 加密 → 索引加 "name (2)" 条目。
-     * 明文只在流里过,不落地;失败清理半成品 blob。
+     * 库内复制副本:文件 → 解密流重加密到新 blob;文件夹 → BFS 逐层复制子孙,
+     * parentId 走 oldId→newId 映射。明文只在流里过,不落地;
+     * 中途失败清理已建 blob 并回滚已加的索引条目。
      */
     fun duplicateEntry(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -440,35 +441,64 @@ class VaultViewModel(
                 flushPendingDelete(u)
                 val idx = container.vaultManager.loadIndex(u)
                 val src = idx.find(id) ?: return@withLock
-                val srcBlob = src.blobId
-                if (src.isFolder || srcBlob == null) return@withLock
-                val newBlob = container.vaultManager.newBlobId()
-                val sink = container.vaultManager.prepareBlobSink(u.vaultId, newBlob)
+                val createdBlobs = mutableListOf<String>()
+                val addedIds = mutableListOf<String>()
                 try {
-                    container.vaultManager.openBlobStream(u, srcBlob).use { dec ->
-                        sink.outputStream().use { raw ->
-                            u.crypto.encryptingStream(
-                                raw, io.vaultx.app.core.crypto.VaultCrypto.blobAd(u.vaultId, newBlob),
-                            ).use { enc -> dec.copyTo(enc) }
+                    val rootCopy = idx.addEntry(
+                        name = container.transferEngine.uniqueName(src.name, idx, src.parentId),
+                        kind = src.kind,
+                        blobId = src.blobId?.let { copyBlob(u, it, createdBlobs) },
+                        sizeBytes = src.sizeBytes,
+                        parentId = src.parentId,
+                        mimeType = src.mimeType,
+                    )
+                    addedIds += rootCopy.id
+                    if (src.isFolder) {
+                        val idMap = mutableMapOf(src.id to rootCopy.id)
+                        var frontier = listOf(src.id)
+                        while (frontier.isNotEmpty()) {
+                            // 新条目的 parentId 是新 id,永远不会撞上 frontier 的旧 id——边加边查安全
+                            val children = idx.entries.filter { it.parentId in frontier }
+                            frontier = children.map { it.id }
+                            children.forEach { e ->
+                                val added = idx.addEntry(
+                                    name = e.name, // 副本文件夹内部无冲突,原名保留
+                                    kind = e.kind,
+                                    blobId = e.blobId?.let { copyBlob(u, it, createdBlobs) },
+                                    sizeBytes = e.sizeBytes,
+                                    parentId = idMap[e.parentId],
+                                    mimeType = e.mimeType,
+                                )
+                                addedIds += added.id
+                                idMap[e.id] = added.id
+                            }
                         }
                     }
+                    persist(u, idx)
+                    _notice.value = "已创建副本"
                 } catch (e: Throwable) {
-                    container.vaultManager.deleteBlob(u.vaultId, newBlob)
+                    createdBlobs.forEach { container.vaultManager.deleteBlob(u.vaultId, it) }
+                    idx.entries.removeAll { it.id in addedIds }
+                    persist(u, idx)
                     _error.value = "复制失败:${e.message}"
-                    return@withLock
                 }
-                idx.addEntry(
-                    name = container.transferEngine.uniqueName(src.name, idx, src.parentId),
-                    kind = src.kind,
-                    blobId = newBlob,
-                    sizeBytes = src.sizeBytes,
-                    parentId = src.parentId,
-                    mimeType = src.mimeType,
-                )
-                persist(u, idx)
-                _notice.value = "已创建副本"
             }
         }
+    }
+
+    /** 复制单个 blob:解密 → 新 blobId 重新加密(AD 绑新 id)。先记账再写,失败可清半成品。 */
+    private fun copyBlob(u: UnlockedVault, srcBlob: String, createdBlobs: MutableList<String>): String {
+        val newBlob = container.vaultManager.newBlobId()
+        createdBlobs += newBlob
+        val sink = container.vaultManager.prepareBlobSink(u.vaultId, newBlob)
+        container.vaultManager.openBlobStream(u, srcBlob).use { dec ->
+            sink.outputStream().use { raw ->
+                u.crypto.encryptingStream(
+                    raw, io.vaultx.app.core.crypto.VaultCrypto.blobAd(u.vaultId, newBlob),
+                ).use { enc -> dec.copyTo(enc) }
+            }
+        }
+        return newBlob
     }
 
     // ---------------- 导出 ----------------

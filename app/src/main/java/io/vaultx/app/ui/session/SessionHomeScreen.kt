@@ -107,6 +107,13 @@ fun SessionHomeScreen(
         if (vlt.isNotEmpty()) vltQueue = vltQueue + vlt.map { it.first }
     }
 
+    // 文件夹导入:树源递归拍平进会话目录(平铺命名空间,重名自动消解)
+    val importFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) vm.import(listOf(container.safTransfer.treeSource(uri)))
+    }
+
     val vltExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
     ) { uri ->
@@ -142,8 +149,28 @@ fun SessionHomeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
+            var importMenu by remember { mutableStateOf(false) }
+            FloatingActionButton(onClick = { importMenu = true }) {
                 Icon(Icons.Filled.Add, contentDescription = "导入")
+            }
+            androidx.compose.material3.DropdownMenu(
+                expanded = importMenu,
+                onDismissRequest = { importMenu = false },
+            ) {
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("导入文件") },
+                    onClick = {
+                        importMenu = false
+                        importLauncher.launch(arrayOf("*/*"))
+                    },
+                )
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("导入文件夹(拍平)") },
+                    onClick = {
+                        importMenu = false
+                        importFolderLauncher.launch(null)
+                    },
+                )
             }
         },
     ) { padding ->
