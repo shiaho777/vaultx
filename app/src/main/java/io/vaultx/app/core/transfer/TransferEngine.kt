@@ -206,7 +206,8 @@ class TransferEngine(private val vaultManager: VaultManager) {
         return if (stripped.isBlank() || stripped == "." || stripped == "..") "unnamed" else stripped
     }
 
-    private fun kindOf(name: String, mime: String?): MediaKind = when {
+    /** 文件名/MIME → 条目类型(导入与 .vlt 解密入库共用)。 */
+    fun kindOf(name: String, mime: String?): MediaKind = when {
         mime?.startsWith("image/") == true -> MediaKind.IMAGE
         mime?.startsWith("video/") == true -> MediaKind.VIDEO
         mime?.startsWith("audio/") == true -> MediaKind.AUDIO

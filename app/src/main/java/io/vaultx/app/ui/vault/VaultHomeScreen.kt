@@ -108,6 +108,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import io.vaultx.app.AppContainer
 import io.vaultx.app.core.media.VaultImageRef
+import io.vaultx.app.core.transfer.TransferEngine
 import io.vaultx.app.core.vault.MediaKind
 import io.vaultx.app.core.vault.VaultEntry
 import io.vaultx.app.ui.components.EmptyState
@@ -168,6 +169,9 @@ fun VaultHomeScreen(
     var vltPassword by remember { mutableStateOf<String?>(null) }
     // "导入到此处"的目标文件夹(文件夹溢出菜单触发),null = 当前目录
     var importTarget by remember { mutableStateOf<String?>(null) }
+    // 导入遇到 .vlt 便携密文:排队逐个收密码解密入库(记住目标文件夹)
+    var vltImportQueue by remember { mutableStateOf<List<TransferEngine.ImportSource>>(emptyList()) }
+    var vltImportTarget by remember { mutableStateOf<String?>(null) }
 
     // 拖拽移动状态:选中态下拖卡片到文件夹格子上
     var dragEntry by remember { mutableStateOf<VaultEntry?>(null) }
@@ -216,7 +220,14 @@ fun VaultHomeScreen(
         val target = importTarget
         importTarget = null
         if (uris.isNotEmpty()) {
-            vm.import(uris.map { container.safTransfer.fileSource(it) }, intoFolderId = target)
+            // .vlt 便携密文分出来逐个收密码解密入库;其他走普通导入
+            val sources = uris.map { container.safTransfer.fileSource(it) }
+            val (vlt, plain) = sources.partition { it.name.endsWith(".vlt", ignoreCase = true) }
+            if (plain.isNotEmpty()) vm.import(plain, intoFolderId = target)
+            if (vlt.isNotEmpty()) {
+                vltImportQueue = vlt
+                vltImportTarget = target
+            }
         }
     }
     val importFolderLauncher = rememberLauncherForActivityResult(
@@ -871,6 +882,50 @@ fun VaultHomeScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { infoTarget = null }) { Text("关闭") } },
+        )
+    }
+
+    // ---------- .vlt 便携密文导入(逐个收密码,错密码留在队列可重试) ----------
+    vltImportQueue.firstOrNull()?.let { src ->
+        var pw by remember(src.name) { mutableStateOf("") }
+        var err by remember(src.name) { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = {
+                // 关掉=放弃这个文件,继续队列下一个
+                vltImportQueue = vltImportQueue.drop(1)
+                if (vltImportQueue.isEmpty()) vltImportTarget = null
+            },
+            title = { Text("解密导入「${src.name}」") },
+            text = {
+                Column(Modifier.imePadding()) {
+                    Text("这是一个 .vlt 便携密文。输入它的一次性密码,解密后直接存入当前库。")
+                    Spacer(Modifier.height(8.dp))
+                    PasswordField(pw, { pw = it; err = null }, "导出时设的密码", isError = err != null, supportingText = err)
+                }
+            },
+            confirmButton = {
+                // 解密中禁重入——否则会撞"已有传输"分支并误报"密码错误"
+                TextButton(
+                    enabled = transfer == null,
+                    onClick = {
+                        if (pw.length < 4) { err = "至少 4 位"; return@TextButton }
+                        vm.importVlt(src, pw.toCharArray(), vltImportTarget) { ok ->
+                        // 失败(错密码/格式坏)留在队首并内联提示,可重试或跳过;成功弹下一个
+                        if (ok) {
+                            vltImportQueue = vltImportQueue.drop(1)
+                            if (vltImportQueue.isEmpty()) vltImportTarget = null
+                        } else {
+                            err = "密码错误或文件已损坏"
+                        }
+                    }
+                }) { Text("解密导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    vltImportQueue = vltImportQueue.drop(1)
+                    if (vltImportQueue.isEmpty()) vltImportTarget = null
+                }) { Text("跳过") }
+            },
         )
     }
 

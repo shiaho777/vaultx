@@ -233,6 +233,75 @@ class VaultViewModel(
 
     // ---------------- 导入 ----------------
 
+    /**
+     * 导入 `.vlt` 便携密文并解密入库:解密流 → blob 加密,明文只过流不落地。
+     * 名字剥 `.vlt` 后缀(大小写不敏感)再走重名消解;密码数组由本方法接管清零。
+     */
+    fun importVlt(
+        source: TransferEngine.ImportSource,
+        password: CharArray,
+        intoFolderId: String?,
+        onDone: (Boolean) -> Unit = {},
+    ) {
+        if (_transfer.value != null) {
+            password.fill('\u0000')
+            _error.value = "已有传输进行中,请先等待或取消"
+            onDone(false)
+            return
+        }
+        val targetFolder = intoFolderId ?: currentFolderId
+        viewModelScope.launch(Dispatchers.IO) {
+            _transfer.value = TransferState(0, 1, "解密导入…")
+            var ok = false
+            try {
+                indexMutex.withLock {
+                    val u = unlocked ?: return@withLock
+                    flushPendingDelete(u)
+                    val idx = container.vaultManager.loadIndex(u)
+                    val baseName = source.name.let {
+                        if (it.endsWith(".vlt", ignoreCase = true)) it.dropLast(4) else it
+                    }
+                    val name = container.transferEngine.uniqueName(baseName, idx, targetFolder)
+                    val blobId = container.vaultManager.newBlobId()
+                    val sink = container.vaultManager.prepareBlobSink(u.vaultId, blobId)
+                    var size = 0L
+                    try {
+                        source.open().use { ins ->
+                            io.vaultx.app.core.crypto.PortableCipher.openDecryptingStream(password, ins).use { dec ->
+                                sink.outputStream().use { raw ->
+                                    u.crypto.encryptingStream(
+                                        raw, io.vaultx.app.core.crypto.VaultCrypto.blobAd(u.vaultId, blobId),
+                                    ).use { enc -> size = dec.copyTo(enc) }
+                                }
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        container.vaultManager.deleteBlob(u.vaultId, blobId)
+                        throw e
+                    }
+                    idx.addEntry(
+                        name = name,
+                        kind = container.transferEngine.kindOf(baseName, null),
+                        blobId = blobId,
+                        sizeBytes = size,
+                        parentId = targetFolder,
+                    )
+                    persist(u, idx)
+                    _notice.value = "已解密导入「$name」"
+                    ok = true
+                }
+            } catch (e: io.vaultx.app.core.crypto.WrongPasswordException) {
+                _error.value = "密码错误"
+            } catch (e: Throwable) {
+                _error.value = "导入失败:${e.message}"
+            } finally {
+                password.fill('\u0000')
+                _transfer.value = null
+                withContext(Dispatchers.Main) { onDone(ok) }
+            }
+        }
+    }
+
     /** [intoFolderId] 指定目标文件夹("导入到此处"),null = 当前目录。 */
     fun import(sources: List<TransferEngine.ImportSource>, intoFolderId: String? = null) {
         if (_transfer.value != null) {
