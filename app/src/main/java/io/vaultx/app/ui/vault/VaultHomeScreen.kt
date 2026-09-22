@@ -187,9 +187,15 @@ fun VaultHomeScreen(
 
     // 排序结果只在输入变化时重算——拖拽/进度等高频重组不能每帧重排全表
     val entries = remember(index, folderStack, query, sortBy, sortReversed) { vm.visibleEntries() }
-    // 从库设置返回(改名等)时重读 meta
+    // 从库设置返回(改名等)时重读 meta;读盘走 IO,不占组合线程
     var metaTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val meta = remember(index, metaTick) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
+    val meta by androidx.compose.runtime.produceState<io.vaultx.app.core.vault.VaultMeta?>(
+        initialValue = null, index, metaTick,
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull()
+        }
+    }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val obs = androidx.lifecycle.LifecycleEventObserver { _, ev ->

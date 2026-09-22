@@ -455,10 +455,13 @@ class VaultViewModel(
                     addedIds += rootCopy.id
                     if (src.isFolder) {
                         val idMap = mutableMapOf(src.id to rootCopy.id)
+                        val visited = mutableSetOf(src.id) // 损坏索引的父子环(A→B→A)不能死循环
                         var frontier = listOf(src.id)
                         while (frontier.isNotEmpty()) {
                             // 新条目的 parentId 是新 id,永远不会撞上 frontier 的旧 id——边加边查安全
-                            val children = idx.entries.filter { it.parentId in frontier }
+                            val children = idx.entries
+                                .filter { it.parentId in frontier && it.id !in visited }
+                            children.forEach { visited += it.id }
                             frontier = children.map { it.id }
                             children.forEach { e ->
                                 val added = idx.addEntry(
