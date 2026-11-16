@@ -30,6 +30,10 @@ data class VaultEntry(
      * 带默认值的字段新增,格式版本不变(旧端 ignoreUnknownKeys 可读)。
      */
     val trashedAt: Long? = null,
+    /** 收藏(星标):跨目录快捷访问,不改变所在目录。 */
+    val starred: Boolean = false,
+    /** 用户标签(小写归一、去重):跨目录组织与筛选的轻量手段。 */
+    val tags: List<String> = emptyList(),
 ) {
     val isFolder: Boolean get() = kind == MediaKind.FOLDER
     val isTrashed: Boolean get() = trashedAt != null
@@ -53,12 +57,28 @@ data class VaultIndex(
     fun childrenOf(folderId: String?): List<VaultEntry> =
         entries.filter { it.parentId == folderId && !it.isTrashed }
 
-    /** 全局搜索:跨文件夹/分类,忽略大小写;回收站条目不命中。 */
+    /** 全局搜索:跨文件夹/分类,忽略大小写;文件名或标签命中均可;回收站条目不命中。 */
     fun search(query: String): List<VaultEntry> {
         val q = query.trim()
         if (q.isEmpty()) return emptyList()
-        return entries.filter { !it.isTrashed && it.name.contains(q, ignoreCase = true) }
+        return entries.filter {
+            !it.isTrashed && (
+                it.name.contains(q, ignoreCase = true) ||
+                    it.tags.any { tag -> tag.contains(q, ignoreCase = true) }
+                )
+        }
     }
+
+    /** 全部收藏条目(跨目录,不含回收站)。 */
+    fun starredEntries(): List<VaultEntry> = entries.filter { it.starred && !it.isTrashed }
+
+    /** 含指定标签的条目(跨目录,不含回收站;标签已归一为小写)。 */
+    fun entriesWithTag(tag: String): List<VaultEntry> =
+        entries.filter { !it.isTrashed && tag.lowercase() in it.tags }
+
+    /** 库内全部标签(去重、字典序),供筛选列表展示。 */
+    fun allTags(): List<String> =
+        entries.asSequence().filter { !it.isTrashed }.flatMap { it.tags }.distinct().sorted().toList()
 
     /**
      * 回收站顶层条目:被标记删除、且父级不在回收站(或父级已不存在)。
@@ -115,6 +135,17 @@ data class VaultIndex(
 
         /** 回收站保留期:到期自动彻底删除(进库时惰性清扫)。 */
         const val TRASH_RETENTION_MS = 30L * 24 * 3600 * 1000
+
+        /** 单条目标签上限与单标签长度上限(防索引膨胀/界面溢出)。 */
+        const val MAX_TAGS_PER_ENTRY = 20
+        const val MAX_TAG_LENGTH = 32
+
+        /** 标签归一:去首尾空白、压缩内部空白、小写、截断;空串返回 null。 */
+        fun normalizeTag(raw: String): String? {
+            val t = raw.trim().replace(Regex("\\s+"), " ").lowercase()
+            if (t.isEmpty()) return null
+            return t.take(MAX_TAG_LENGTH)
+        }
 
         // encodeDefaults:formatVersion 等默认值字段必须落盘,否则版本锚点形同虚设
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }

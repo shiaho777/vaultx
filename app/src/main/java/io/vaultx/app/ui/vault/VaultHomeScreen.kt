@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
@@ -59,6 +60,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -72,6 +75,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -159,6 +163,11 @@ fun VaultHomeScreen(
     var backupDismissed by remember { mutableStateOf(false) }
     // 回收站视图开关(同 VM 内切换,不走导航栈)
     var showTrash by remember { mutableStateOf(false) }
+    val starredOnly by vm.starredOnly.collectAsState()
+    val tagFilter by vm.tagFilter.collectAsState()
+    val allTags = remember(index) { index?.allTags() ?: emptyList() }
+    var tagMenu by remember { mutableStateOf(false) }
+    var tagsFor by remember { mutableStateOf<VaultEntry?>(null) }
 
     val searchFocus = remember { FocusRequester() }
     var searching by remember { mutableStateOf(false) }
@@ -309,12 +318,17 @@ fun VaultHomeScreen(
         }
     }
 
-    // 返回优先级:退回收站 → 清选择 → 关搜索 → 上一层目录 → 系统返回
-    BackHandler(enabled = showTrash || selection.isNotEmpty() || searching || folderStack.isNotEmpty()) {
+    // 返回优先级:退回收站 → 清选择 → 关搜索 → 退收藏/标签筛选 → 上一层目录 → 系统返回
+    BackHandler(
+        enabled = showTrash || selection.isNotEmpty() || searching ||
+            starredOnly || tagFilter != null || folderStack.isNotEmpty(),
+    ) {
         when {
             showTrash -> showTrash = false
             selection.isNotEmpty() -> vm.clearSelection()
             searching -> { searching = false; vm.setQuery("") }
+            starredOnly -> vm.setStarredOnly(false)
+            tagFilter != null -> vm.setTagFilter(null)
             else -> vm.navigateUp()
         }
     }
@@ -420,6 +434,39 @@ fun VaultHomeScreen(
                                     )
                                 },
                             )
+                        }
+                    }
+                    // 收藏开关:再点退出收藏视图
+                    IconButton(onClick = { vm.setStarredOnly(!starredOnly) }) {
+                        Icon(
+                            if (starredOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = stringResource(R.string.tags_starred_only),
+                            tint = if (starredOnly) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                        )
+                    }
+                    // 标签筛选:库内有标签才显示入口
+                    if (allTags.isNotEmpty() || tagFilter != null) {
+                        IconButton(onClick = { tagMenu = true }) {
+                            Icon(
+                                Icons.Filled.Label,
+                                contentDescription = stringResource(R.string.tags_open_filter),
+                                tint = if (tagFilter != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                            )
+                        }
+                        DropdownMenu(expanded = tagMenu, onDismissRequest = { tagMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.tags_filter_all)) },
+                                onClick = { vm.setTagFilter(null); tagMenu = false },
+                            )
+                            allTags.forEach { t ->
+                                DropdownMenuItem(
+                                    text = { Text(t) },
+                                    onClick = { vm.setTagFilter(t); tagMenu = false },
+                                    trailingIcon = {
+                                        if (t == tagFilter) Icon(Icons.Filled.Check, null)
+                                    },
+                                )
+                            }
                         }
                     }
                     IconButton(onClick = { showTrash = true }) {
@@ -549,9 +596,15 @@ fun VaultHomeScreen(
                 if (entries.isEmpty()) {
                     // 传输进行中不闪"空目录"——进度条已占位,导入完自然填充
                     if (transfer == null) {
+                        val (emptyTitle, emptySubtitle) = when {
+                            starredOnly -> R.string.tags_empty_starred_title to R.string.tags_empty_starred_subtitle
+                            tagFilter != null -> R.string.tags_empty_tag_title to R.string.vhome_empty_no_match_subtitle
+                            query.isNotBlank() -> R.string.vhome_empty_no_match_title to R.string.vhome_empty_no_match_subtitle
+                            else -> R.string.vhome_empty_title to R.string.vhome_empty_subtitle
+                        }
                         EmptyState(
-                            title = stringResource(if (query.isNotBlank()) R.string.vhome_empty_no_match_title else R.string.vhome_empty_title),
-                            subtitle = stringResource(if (query.isNotBlank()) R.string.vhome_empty_no_match_subtitle else R.string.vhome_empty_subtitle),
+                            title = stringResource(emptyTitle),
+                            subtitle = stringResource(emptySubtitle),
                             modifier = Modifier.weight(1f),
                         )
                     } else {
@@ -716,6 +769,22 @@ fun VaultHomeScreen(
     // ---------- 条目溢出菜单 ----------
     overflowFor?.let { entry ->
         DropdownMenu(expanded = true, onDismissRequest = { overflowFor = null }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(if (entry.starred) R.string.tags_unstar else R.string.tags_star)) },
+                leadingIcon = {
+                    Icon(
+                        if (entry.starred) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        null,
+                        tint = if (entry.starred) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                    )
+                },
+                onClick = { vm.setStarred(setOf(entry.id), !entry.starred); overflowFor = null },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.tags_manage)) },
+                leadingIcon = { Icon(Icons.Filled.Label, null) },
+                onClick = { tagsFor = entry; overflowFor = null },
+            )
             if (isTextEntry(entry)) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.vhome_preview)) },
@@ -782,6 +851,87 @@ fun VaultHomeScreen(
                 },
             )
         }
+    }
+
+    // ---------- 标签管理 ----------
+    tagsFor?.let { target ->
+        // 从最新索引取条目(加/删标签后即时刷新芯片)
+        val entry = index?.find(target.id) ?: target
+        var newTag by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { tagsFor = null },
+            title = { Text(stringResource(R.string.tags_dialog_title, entry.name)) },
+            text = {
+                Column {
+                    if (entry.tags.isEmpty()) {
+                        Text(
+                            stringResource(R.string.tags_none),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            entry.tags.forEach { t ->
+                                androidx.compose.material3.InputChip(
+                                    selected = false,
+                                    onClick = { vm.removeTag(entry.id, t) },
+                                    label = { Text(t) },
+                                    trailingIcon = {
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = stringResource(R.string.tags_remove, t),
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = newTag,
+                        onValueChange = { newTag = it },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.tags_add_hint)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onDone = {
+                                if (newTag.isNotBlank()) { vm.addTag(entry.id, newTag); newTag = "" }
+                            },
+                        ),
+                    )
+                    // 库内已有标签快捷添加(排除本条目已有的)
+                    val suggestions = allTags.filter { it !in entry.tags }
+                    if (suggestions.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            suggestions.take(12).forEach { t ->
+                                androidx.compose.material3.SuggestionChip(
+                                    onClick = { vm.addTag(entry.id, t) },
+                                    label = { Text(t) },
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newTag.isNotBlank()) vm.addTag(entry.id, newTag)
+                    tagsFor = null
+                }) { Text(stringResource(R.string.vhome_ok)) }
+            },
+            dismissButton = { TextButton(onClick = { tagsFor = null }) { Text(stringResource(R.string.vhome_cancel)) } },
+        )
     }
 
     // ---------- 重命名 ----------
@@ -1124,9 +1274,24 @@ private fun EntryListRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (entry.starred) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            Icons.Filled.Star, null, Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 Text(
-                    subtitle ?: if (entry.isFolder) stringResource(R.string.vhome_item_count, childCount ?: 0) else formatBytes(entry.sizeBytes),
+                    buildString {
+                        append(
+                            subtitle ?: if (entry.isFolder) stringResource(R.string.vhome_item_count, childCount ?: 0)
+                            else formatBytes(entry.sizeBytes),
+                        )
+                        if (entry.tags.isNotEmpty()) append(" · ${entry.tags.joinToString(" ")}")
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -1264,11 +1429,21 @@ private fun EntryCell(
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    entry.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 2,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (entry.starred) {
+                        Icon(
+                            Icons.Filled.Star, null, Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(3.dp))
+                    }
+                    Text(
+                        entry.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 2,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
                 Text(
                     subtitle ?: if (entry.isFolder) stringResource(R.string.vhome_item_count, childCount ?: 0) else formatBytes(entry.sizeBytes),
                     style = MaterialTheme.typography.labelSmall,
