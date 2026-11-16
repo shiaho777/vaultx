@@ -1,5 +1,8 @@
 package io.vaultx.app.core.crypto
 
+import androidx.annotation.StringRes
+import io.vaultx.app.R
+
 /**
  * 密码强度粗估(纯函数,UI 指示条用)。
  *
@@ -27,11 +30,13 @@ object PasswordStrength {
         return s.coerceIn(1, 4)
     }
 
-    fun label(pw: CharSequence): String = when (score(pw)) {
-        0 -> ""
-        1 -> "弱"
-        2 -> "中"
-        3 -> "强"
-        else -> "很强"
+    /** [score] → 字符串资源 id;0(空密码)返回 0 表示不显示标签。 */
+    @StringRes
+    fun labelRes(score: Int): Int = when (score) {
+        0 -> 0
+        1 -> R.string.pw_weak
+        2 -> R.string.pw_medium
+        3 -> R.string.pw_strong
+        else -> R.string.pw_very_strong
     }
 }

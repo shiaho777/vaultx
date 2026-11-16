@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sort options (VaultViewModel.SortBy) -->
+    <string name="vm_sort_name">Name</string>
+    <string name="vm_sort_time">Time</string>
+    <string name="vm_sort_size">Size</string>
+    <string name="vm_sort_kind">Type</string>
+
+    <!-- Transfer progress labels -->
+    <string name="vm_transfer_encrypt_export">Encrypting export…</string>
+    <string name="vm_transfer_decrypt_import">Decrypting import…</string>
+    <string name="vm_transfer_importing">Importing…</string>
+    <string name="vm_transfer_exporting">Exporting…</string>
+
+    <!-- Errors -->
+    <string name="vm_transfer_busy">A transfer is already in progress; wait or cancel it first</string>
+    <string name="vm_error_index_load">Failed to read index: %1$s</string>
+    <string name="vm_error_index_save">Failed to save index: %1$s</string>
+    <string name="vm_error_export">Export failed: %1$s</string>
+    <string name="vm_error_import">Import failed: %1$s</string>
+    <string name="vm_error_wrong_password">Wrong password</string>
+    <string name="vm_error_move_into_self">Cannot move an item into itself</string>
+    <string name="vm_error_duplicate">Copy failed: %1$s</string>
+
+    <!-- Notices -->
+    <string name="vm_notice_exported_vlt">Exported %1$s.vlt</string>
+    <string name="vm_notice_imported_vlt">Decrypted and imported \"%1$s\"</string>
+    <string name="vm_notice_import_cancelled">Import cancelled</string>
+    <string name="vm_notice_imported_count">Imported %1$d items</string>
+    <string name="vm_notice_imported_skipped">" (skipped %1$d duplicates)"</string>
+    <string name="vm_notice_import_cancelled_partial">Cancelled; kept %1$d imported items</string>
+    <string name="vm_notice_deleted_count">Moved %1$d items to Trash</string>
+    <string name="vm_notice_purged_count">Permanently deleted %1$d items</string>
+    <string name="vm_notice_restored_count">Restored %1$d items</string>
+    <string name="vm_notice_restored_partial">Restored %1$d items; %2$d could not be restored</string>
+    <string name="vm_notice_duplicated">Copy created</string>
+    <string name="vm_notice_exported_count">Exported %1$d items</string>
+    <string name="vm_notice_exported_failed">, %1$d failed</string>
+    <string name="vm_notice_export_cancelled">Export cancelled</string>
+
+    <!-- Separator joining failed file names in the export notice -->
+    <string name="vm_name_separator">", "</string>
+</resources>

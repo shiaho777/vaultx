@@ -56,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -64,6 +65,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.crypto.KdfParams
 import io.vaultx.app.core.crypto.PasswordStrength
 import io.vaultx.app.core.crypto.VaultCrypto
@@ -114,6 +116,7 @@ fun LockedHomeScreen(
 
     fun refresh() {
         scope.launch(Dispatchers.IO) {
+            val backups = container.settings.backupTimes.value
             val list = runCatching {
                 container.vaultManager.listVaults().map { meta ->
                     VaultCardInfo(
@@ -123,10 +126,12 @@ fun LockedHomeScreen(
                         // 诱骗库与真库共用磁盘目录:显示物理占用会把隐藏体量泄露给诱骗会话
                         usageBytes = if (meta.hasDecoy) null else container.vaultManager.vaultDiskUsage(meta.vaultId),
                         hasBio = container.vaultManager.readBioWrap(meta.vaultId) != null,
+                        // 备份状态与占用同口径:配置诱骗的库不展示管理信息
+                        lastBackup = if (meta.hasDecoy) null else backups[meta.vaultId] ?: 0L,
                     )
                 }
             }.getOrElse {
-                withContext(Dispatchers.Main) { error = "列表加载失败:${it.message}" }
+                withContext(Dispatchers.Main) { error = context.getString(R.string.locked_load_failed, it.message) }
                 null
             }
             if (list != null) vaults = list
@@ -155,7 +160,7 @@ fun LockedHomeScreen(
     fun biometricUnlock(meta: VaultMeta) {
         val wrapped = container.vaultManager.readBioWrap(meta.vaultId) ?: return
         if (!container.biometrics.isAvailable(context)) {
-            error = "生物识别不可用"
+            error = context.getString(R.string.locked_bio_unavailable)
             return
         }
         val activity = context as? FragmentActivity ?: return
@@ -168,7 +173,7 @@ fun LockedHomeScreen(
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         val vmk = result.cryptoObject?.let { container.biometrics.unwrapVmk(it, wrapped) }
                         if (vmk == null) {
-                            error = "生物识别解锁失败"
+                            error = context.getString(R.string.locked_bio_unlock_failed)
                             unlockTarget = meta
                             return
                         }
@@ -181,7 +186,7 @@ fun LockedHomeScreen(
                             BiometricPrompt.ERROR_NEGATIVE_BUTTON -> unlockTarget = meta
                             BiometricPrompt.ERROR_USER_CANCELED -> Unit
                             else -> {
-                                error = "生物识别失败:$msg"
+                                error = context.getString(R.string.locked_bio_error, msg)
                                 unlockTarget = meta
                             }
                         }
@@ -190,18 +195,18 @@ fun LockedHomeScreen(
             )
             prompt.authenticate(
                 BiometricPrompt.PromptInfo.Builder()
-                    .setTitle("解锁「${meta.name}」")
-                    .setNegativeButtonText("使用密码")
+                    .setTitle(context.getString(R.string.locked_unlock_title, meta.name))
+                    .setNegativeButtonText(context.getString(R.string.locked_use_password))
                     .build(),
                 cryptoObject,
             )
         } catch (e: BiometricKeystore_KeyInvalidated) {
             container.vaultManager.deleteBioWrap(meta.vaultId)
             container.biometrics.deleteKey(meta.vaultId)
-            error = "生物识别密钥已失效(指纹变更),请用密码解锁"
+            error = context.getString(R.string.locked_bio_key_invalidated)
             unlockTarget = meta
         } catch (e: Exception) {
-            error = "生物识别解锁失败"
+            error = context.getString(R.string.locked_bio_unlock_failed)
             unlockTarget = meta
         }
     }
@@ -211,7 +216,7 @@ fun LockedHomeScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                busy = "读取归档信息…"
+                busy = context.getString(R.string.locked_reading_archive)
                 // 不整段读进内存:peekMeta 扫头拿到 meta 就停;正式导入时再开一条流
                 val meta = withContext(Dispatchers.IO) {
                     runCatching {
@@ -225,7 +230,7 @@ fun LockedHomeScreen(
                     archiveImportMeta = meta
                     archiveImportUri = uri
                 } else {
-                    error = "不是有效的 .fvault 归档"
+                    error = context.getString(R.string.locked_invalid_archive)
                 }
             }
         }
@@ -234,27 +239,27 @@ fun LockedHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("保险库") },
+                title = { Text(stringResource(R.string.locked_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.locked_back))
                     }
                 },
                 actions = {
                     Box {
                         IconButton(onClick = { overflowMenu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.locked_more))
                         }
                         DropdownMenu(expanded = overflowMenu, onDismissRequest = { overflowMenu = false }) {
                             DropdownMenuItem(
-                                text = { Text("导入 .fvault 归档") },
+                                text = { Text(stringResource(R.string.locked_import_archive)) },
                                 onClick = {
                                     overflowMenu = false
                                     archiveImportLauncher.launch(arrayOf("*/*"))
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("紧急销毁所有库", color = MaterialTheme.colorScheme.error) },
+                                text = { Text(stringResource(R.string.locked_panic_wipe_all), color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = { Icon(Icons.Filled.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
                                 onClick = { overflowMenu = false; panicConfirm = true },
                             )
@@ -265,7 +270,7 @@ fun LockedHomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreate = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "新建保险库")
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.locked_new_vault))
             }
         },
     ) { padding ->
@@ -302,8 +307,8 @@ fun LockedHomeScreen(
                 }
                 list.isEmpty() -> {
                     EmptyState(
-                        title = "还没有保险库",
-                        subtitle = "点右下角 + 新建一个;也可从菜单导入 .fvault 归档恢复",
+                        title = stringResource(R.string.locked_empty_title),
+                        subtitle = stringResource(R.string.locked_empty_subtitle),
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -337,7 +342,7 @@ fun LockedHomeScreen(
             onCreate = { name, password, highSec, masterGate ->
                 showCreate = false
                 scope.launch {
-                    busy = "创建保险库…(Argon2id 派生中)"
+                    busy = context.getString(R.string.locked_creating)
                     runCatching {
                         withContext(Dispatchers.IO) {
                             container.vaultManager.createVault(
@@ -351,7 +356,7 @@ fun LockedHomeScreen(
                     }.onSuccess { meta ->
                         refresh()
                         onOpenVault(meta.vaultId)
-                    }.onFailure { error = "创建失败:${it.message}" }
+                    }.onFailure { error = context.getString(R.string.locked_create_failed, it.message) }
                     busy = null
                 }
             },
@@ -380,7 +385,10 @@ fun LockedHomeScreen(
                         }
                     }.onFailure { e ->
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        reportError(if (e is WrongPasswordException) "密码错误" else "解锁失败:${e.message}")
+                        reportError(
+                            if (e is WrongPasswordException) context.getString(R.string.locked_wrong_password)
+                            else context.getString(R.string.locked_unlock_failed, e.message),
+                        )
                     }
                 }
             },
@@ -391,9 +399,9 @@ fun LockedHomeScreen(
     menuTarget?.let { meta ->
         ModalBottomSheet(onDismissRequest = { menuTarget = null }) {
             Column(Modifier.padding(bottom = 32.dp)) {
-                SheetItem("重命名") { renameTarget = meta; menuTarget = null }
-                SheetItem("导出 .fvault 备份") { exportVaultMeta = meta; menuTarget = null }
-                SheetItem("删除(不可恢复)", danger = true) { deleteTarget = meta; menuTarget = null }
+                SheetItem(stringResource(R.string.locked_rename)) { renameTarget = meta; menuTarget = null }
+                SheetItem(stringResource(R.string.locked_export_backup)) { exportVaultMeta = meta; menuTarget = null }
+                SheetItem(stringResource(R.string.locked_delete_irreversible), danger = true) { deleteTarget = meta; menuTarget = null }
             }
         }
     }
@@ -410,11 +418,12 @@ fun LockedHomeScreen(
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openOutputStream(uri)?.use { out ->
                             container.vaultArchive.exportVault(meta.vaultId, out) { d, t ->
-                                busy = "导出归档 $d / $t"
+                                busy = context.getString(R.string.locked_export_progress, d, t)
                             }
                         }
                     }
-                }.onFailure { error = "导出失败:${it.message}" }
+                }.onSuccess { container.settings.recordBackup(meta.vaultId) }
+                    .onFailure { error = context.getString(R.string.locked_export_failed, it.message) }
                 busy = null
             }
         }
@@ -432,12 +441,12 @@ fun LockedHomeScreen(
         var pwError by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { archiveImportMeta = null; archiveImportUri = null },
-            title = { Text("导入「${meta.name}」") },
+            title = { Text(stringResource(R.string.locked_import_title, meta.name)) },
             text = {
                 Column(Modifier.imePadding()) {
-                    Text("输入该归档的密码(真密码或诱骗密码均可)")
+                    Text(stringResource(R.string.locked_import_password_hint))
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(pw, { pw = it; pwError = null }, "密码", isError = pwError != null, supportingText = pwError)
+                    PasswordField(pw, { pw = it; pwError = null }, stringResource(R.string.locked_password), isError = pwError != null, supportingText = pwError)
                 }
             },
             confirmButton = {
@@ -448,22 +457,22 @@ fun LockedHomeScreen(
                             withContext(Dispatchers.IO) {
                                 context.contentResolver.openInputStream(uri)?.use { ins ->
                                     container.vaultArchive.importVault(ins, pw.toCharArray()) { d, t ->
-                                        busy = "校验并导入 $d / $t"
+                                        busy = context.getString(R.string.locked_import_progress, d, t)
                                     }
-                                } ?: throw io.vaultx.app.core.vault.ArchiveException("无法读取所选文件")
+                                } ?: throw io.vaultx.app.core.vault.ArchiveException(context.getString(R.string.locked_cannot_read_file))
                             }
                         }.onSuccess {
                             archiveImportMeta = null
                             archiveImportUri = null
                             refresh()
                         }.onFailure { e ->
-                            pwError = if (e is WrongPasswordException) "密码错误" else e.message
+                            pwError = if (e is WrongPasswordException) context.getString(R.string.locked_wrong_password) else e.message
                         }
                         busy = null
                     }
-                }) { Text("导入") }
+                }) { Text(stringResource(R.string.locked_import)) }
             },
-            dismissButton = { TextButton(onClick = { archiveImportMeta = null; archiveImportUri = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { archiveImportMeta = null; archiveImportUri = null }) { Text(stringResource(R.string.locked_cancel)) } },
         )
     }
 
@@ -472,27 +481,27 @@ fun LockedHomeScreen(
         var name by remember { mutableStateOf(meta.name) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("重命名") },
+            title = { Text(stringResource(R.string.locked_rename)) },
             text = {
-                OutlinedTextField(name, { name = it }, label = { Text("名称") }, modifier = Modifier.imePadding())
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.locked_name)) }, modifier = Modifier.imePadding())
             },
             confirmButton = {
                 TextButton(onClick = {
                     container.vaultManager.renameVault(meta.vaultId, name)
                     renameTarget = null
                     refresh()
-                }) { Text("确定") }
+                }) { Text(stringResource(R.string.locked_confirm)) }
             },
-            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text(stringResource(R.string.locked_cancel)) } },
         )
     }
 
     // ---------- 删除确认 ----------
     deleteTarget?.let { meta ->
         ConfirmDialog(
-            title = "删除「${meta.name}」?",
-            text = "库内所有加密文件将永久删除,无法恢复。建议先导出 .fvault 备份。",
-            confirmText = "永久删除",
+            title = stringResource(R.string.locked_delete_title, meta.name),
+            text = stringResource(R.string.locked_delete_text),
+            confirmText = stringResource(R.string.locked_delete_forever),
             danger = true,
             onConfirm = {
                 container.session.lock(meta.vaultId)
@@ -508,21 +517,21 @@ fun LockedHomeScreen(
     // ---------- 紧急销毁 ----------
     if (panicConfirm) {
         var confirmText by remember { mutableStateOf("") }
+        val panicKeyword = stringResource(R.string.locked_panic_keyword)
         AlertDialog(
             onDismissRequest = { panicConfirm = false },
-            title = { Text("紧急销毁所有库?", color = MaterialTheme.colorScheme.error) },
+            title = { Text(stringResource(R.string.locked_panic_title), color = MaterialTheme.colorScheme.error) },
             text = {
                 Column(Modifier.imePadding()) {
                     Text(
-                        "将永久删除全部 ${vaults?.size ?: 0} 个保险库及临时空间内容,无法恢复。" +
-                            "(说明:闪存磨损均衡下,快速删除不能保证每个物理块都被回收——这是所有同类工具的边界。)",
+                        stringResource(R.string.locked_panic_text, vaults?.size ?: 0),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = confirmText,
                         onValueChange = { confirmText = it },
-                        label = { Text("输入「销毁」确认") },
+                        label = { Text(stringResource(R.string.locked_panic_confirm_label, panicKeyword)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -530,19 +539,19 @@ fun LockedHomeScreen(
             },
             confirmButton = {
                 TextButton(
-                    enabled = confirmText == "销毁",
+                    enabled = confirmText == panicKeyword,
                     onClick = {
                         panicConfirm = false
                         scope.launch {
-                            busy = "销毁中…"
+                            busy = context.getString(R.string.locked_wiping)
                             withContext(Dispatchers.IO) { container.panicWipe() }
                             busy = null
                             refresh()
                         }
                     },
-                ) { Text("立即销毁", color = MaterialTheme.colorScheme.error) }
+                ) { Text(stringResource(R.string.locked_wipe_now), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { panicConfirm = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { panicConfirm = false }) { Text(stringResource(R.string.locked_cancel)) } },
         )
     }
 }
@@ -550,12 +559,14 @@ fun LockedHomeScreen(
 /** 别名占位:KeyInvalidatedException 引用。 */
 private typealias BiometricKeystore_KeyInvalidated = io.vaultx.app.core.security.BiometricKeystore.KeyInvalidatedException
 
-/** 卡片展示所需的快照:meta + 条目数 + 磁盘占用 + 是否已配生物识别。 */
+/** 卡片展示所需的快照:meta + 条目数 + 磁盘占用 + 是否已配生物识别 + 备份状态。 */
 private data class VaultCardInfo(
     val meta: VaultMeta,
     val entryCount: Int?,
     val usageBytes: Long?,
     val hasBio: Boolean,
+    /** 0 = 从未备份;>0 = 最近备份 epoch ms。null = 不展示(诱骗配置的库,避免泄露管理信息)。 */
+    val lastBackup: Long?,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -570,6 +581,7 @@ private fun VaultCard(
     val usageBytes = info.usageBytes
     val hasBio = info.hasBio
     val interactionSource = remember { MutableInteractionSource() }
+    val context = LocalContext.current
     val fmt = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     Card(
         modifier = Modifier
@@ -596,14 +608,28 @@ private fun VaultCard(
                 Text(
                     buildString {
                         append(fmt.format(Date(meta.createdAt)))
-                        if (entryCount != null) append(" · $entryCount 项")
+                        if (entryCount != null) append(context.getString(R.string.locked_entry_count, entryCount))
                         if (usageBytes != null) append(" · ${formatBytes(usageBytes)}")
                         // 不显示"诱骗"标记:胁迫者打开 App 一眼看到它就前功尽弃
-                        if (meta.masterGate) append(" · 总密码")
+                        if (meta.masterGate) append(context.getString(R.string.locked_master_password_badge))
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // 备份状态:从未备份/超期才提示(正常备份不打扰);有文件的库才值得提醒
+                val lastBackup = info.lastBackup
+                if (lastBackup != null && (entryCount ?: 0) > 0) {
+                    val overdue = System.currentTimeMillis() - lastBackup >
+                        io.vaultx.app.core.state.AppSettings.BACKUP_REMINDER_DAYS * 24 * 3600 * 1000
+                    if (overdue) {
+                        Text(
+                            if (lastBackup == 0L) stringResource(R.string.backup_never_short)
+                            else stringResource(R.string.backup_overdue),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                }
             }
             if (hasBio) {
                 Icon(Icons.Filled.Fingerprint, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.outline)
@@ -639,15 +665,16 @@ private fun CreateVaultDialog(
     var highSec by remember { mutableStateOf(false) }
     var masterGate by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建保险库") },
+        title = { Text(stringResource(R.string.locked_create_title)) },
         text = {
             Column(Modifier.imePadding()) {
-                OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true)
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.locked_name)) }, singleLine = true)
                 Spacer(Modifier.height(8.dp))
-                PasswordField(pw, { pw = it; err = null }, "密码", imeAction = ImeAction.Next)
+                PasswordField(pw, { pw = it; err = null }, stringResource(R.string.locked_password), imeAction = ImeAction.Next)
                 if (pw.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     val score = PasswordStrength.score(pw)
@@ -662,35 +689,35 @@ private fun CreateVaultDialog(
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "密码强度:${PasswordStrength.label(pw)}",
+                        stringResource(R.string.locked_password_strength, stringResource(PasswordStrength.labelRes(score))),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                PasswordField(pw2, { pw2 = it; err = null }, "确认密码", isError = err != null, supportingText = err)
+                PasswordField(pw2, { pw2 = it; err = null }, stringResource(R.string.locked_confirm_password), isError = err != null, supportingText = err)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Checkbox(checked = highSec, onCheckedChange = { highSec = it })
-                    Text("高强度密码派生(Argon2id 64MiB,解锁更慢)")
+                    Text(stringResource(R.string.locked_high_security))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Checkbox(checked = masterGate, onCheckedChange = { masterGate = it })
-                    Text("总密码(进库必须解锁;关闭则索引明文可读)")
+                    Text(stringResource(R.string.locked_master_gate))
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 when {
-                    name.isBlank() -> err = "名称不能为空"
-                    pw.length < VaultManager_MIN_PW -> err = "密码至少 $VaultManager_MIN_PW 位"
-                    pw != pw2 -> err = "两次密码不一致"
+                    name.isBlank() -> err = context.getString(R.string.locked_name_empty)
+                    pw.length < VaultManager_MIN_PW -> err = context.getString(R.string.locked_password_min, VaultManager_MIN_PW)
+                    pw != pw2 -> err = context.getString(R.string.locked_password_mismatch)
                     else -> onCreate(name.trim(), pw, highSec, masterGate)
                 }
-            }) { Text("创建") }
+            }) { Text(stringResource(R.string.locked_create)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.locked_cancel)) } },
     )
 }
 
@@ -719,11 +746,11 @@ private fun UnlockDialog(
     }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("解锁「${meta.name}」") },
+        title = { Text(stringResource(R.string.locked_unlock_title, meta.name)) },
         text = {
             Column(Modifier.imePadding()) {
                 PasswordField(
-                    pw, { pw = it; err = null }, "密码",
+                    pw, { pw = it; err = null }, stringResource(R.string.locked_password),
                     isError = err != null, supportingText = err,
                     onImeAction = { tryUnlock() },
                 )
@@ -732,7 +759,7 @@ private fun UnlockDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
-                        Text("派生密钥中…", style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(R.string.locked_deriving), style = MaterialTheme.typography.labelSmall)
                     }
                 }
                 if (hasBio && !busy) {
@@ -740,14 +767,14 @@ private fun UnlockDialog(
                     TextButton(onClick = onBiometric) {
                         Icon(Icons.Filled.Fingerprint, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("改用生物识别")
+                        Text(stringResource(R.string.locked_use_biometrics))
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { tryUnlock() }, enabled = !busy) { Text("解锁") }
+            TextButton(onClick = { tryUnlock() }, enabled = !busy) { Text(stringResource(R.string.locked_unlock)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.locked_cancel)) } },
     )
 }

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sort options (VaultViewModel.SortBy) -->
+    <string name="vm_sort_name">名称</string>
+    <string name="vm_sort_time">时间</string>
+    <string name="vm_sort_size">大小</string>
+    <string name="vm_sort_kind">类型</string>
+
+    <!-- Transfer progress labels -->
+    <string name="vm_transfer_encrypt_export">加密导出…</string>
+    <string name="vm_transfer_decrypt_import">解密导入…</string>
+    <string name="vm_transfer_importing">导入中…</string>
+    <string name="vm_transfer_exporting">导出中…</string>
+
+    <!-- Errors -->
+    <string name="vm_transfer_busy">已有传输进行中,请先等待或取消</string>
+    <string name="vm_error_index_load">索引读取失败:%1$s</string>
+    <string name="vm_error_index_save">保存索引失败:%1$s</string>
+    <string name="vm_error_export">导出失败:%1$s</string>
+    <string name="vm_error_import">导入失败:%1$s</string>
+    <string name="vm_error_wrong_password">密码错误</string>
+    <string name="vm_error_move_into_self">不能移动到自身内部</string>
+    <string name="vm_error_duplicate">复制失败:%1$s</string>
+
+    <!-- Notices -->
+    <string name="vm_notice_exported_vlt">已导出 %1$s.vlt</string>
+    <string name="vm_notice_imported_vlt">已解密导入「%1$s」</string>
+    <string name="vm_notice_import_cancelled">导入已取消</string>
+    <string name="vm_notice_imported_count">已导入 %1$d 项</string>
+    <string name="vm_notice_imported_skipped">(跳过 %1$d 个重复)</string>
+    <string name="vm_notice_import_cancelled_partial">已取消;保留已导入的 %1$d 项</string>
+    <string name="vm_notice_deleted_count">已移入回收站 %1$d 项</string>
+    <string name="vm_notice_purged_count">已彻底删除 %1$d 项</string>
+    <string name="vm_notice_restored_count">已恢复 %1$d 项</string>
+    <string name="vm_notice_restored_partial">已恢复 %1$d 项,%2$d 项已无法恢复</string>
+    <string name="vm_notice_duplicated">已创建副本</string>
+    <string name="vm_notice_exported_count">已导出 %1$d 项</string>
+    <string name="vm_notice_exported_failed">,%1$d 个失败</string>
+    <string name="vm_notice_export_cancelled">导出已取消</string>
+
+    <!-- Separator joining failed file names in the export notice -->
+    <string name="vm_name_separator">、</string>
+</resources>

@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
@@ -99,6 +100,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -107,6 +109,7 @@ import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.media.VaultImageRef
 import io.vaultx.app.core.transfer.TransferEngine
 import io.vaultx.app.core.vault.MediaKind
@@ -151,6 +154,11 @@ fun VaultHomeScreen(
     val error by vm.error.collectAsState()
     val notice by vm.notice.collectAsState()
     val undo by vm.undoDelete.collectAsState()
+    val backupDue by vm.backupDue.collectAsState()
+    // 本次会话内忽略备份提醒(不持久化:下次进库仍会温和提示)
+    var backupDismissed by remember { mutableStateOf(false) }
+    // 回收站视图开关(同 VM 内切换,不走导航栈)
+    var showTrash by remember { mutableStateOf(false) }
 
     val searchFocus = remember { FocusRequester() }
     var searching by remember { mutableStateOf(false) }
@@ -301,13 +309,20 @@ fun VaultHomeScreen(
         }
     }
 
-    // 返回优先级:清选择 → 关搜索 → 上一层目录 → 系统返回
-    BackHandler(enabled = selection.isNotEmpty() || searching || folderStack.isNotEmpty()) {
+    // 返回优先级:退回收站 → 清选择 → 关搜索 → 上一层目录 → 系统返回
+    BackHandler(enabled = showTrash || selection.isNotEmpty() || searching || folderStack.isNotEmpty()) {
         when {
+            showTrash -> showTrash = false
             selection.isNotEmpty() -> vm.clearSelection()
             searching -> { searching = false; vm.setQuery("") }
             else -> vm.navigateUp()
         }
+    }
+
+    // 回收站视图:同 VM 同索引,顶层被删条目列表;恢复/彻底删除后自动刷新
+    if (showTrash) {
+        TrashScreen(vm = vm, onBack = { showTrash = false })
+        return
     }
 
     /** 单点行为统一走这里:选模式切选;文件夹进入;文本预览;OTHER 弹菜单;媒体开查看器。 */
@@ -327,7 +342,7 @@ fun VaultHomeScreen(
                 navigationIcon = {
                     if (folderStack.isNotEmpty()) {
                         IconButton(onClick = { vm.navigateUp() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上一层")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.vhome_navigate_up))
                         }
                     }
                 },
@@ -336,7 +351,7 @@ fun VaultHomeScreen(
                         OutlinedTextField(
                             value = query,
                             onValueChange = { vm.setQuery(it) },
-                            placeholder = { Text("搜索文件名") },
+                            placeholder = { Text(stringResource(R.string.vhome_search_placeholder)) },
                             singleLine = true,
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                 imeAction = androidx.compose.ui.text.input.ImeAction.Search,
@@ -345,7 +360,7 @@ fun VaultHomeScreen(
                         )
                     } else {
                         Column {
-                            Text(meta?.name ?: "保险库", style = MaterialTheme.typography.titleMedium)
+                            Text(meta?.name ?: stringResource(R.string.vhome_default_title), style = MaterialTheme.typography.titleMedium)
                             if (folderStack.isNotEmpty()) {
                                 // 可点面包屑:任意段直接跳回;深路径横向可滚不被裁
                                 Row(
@@ -353,7 +368,7 @@ fun VaultHomeScreen(
                                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 ) {
                                     Text(
-                                        "根目录",
+                                        stringResource(R.string.vhome_root),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.clickable { vm.jumpToBreadcrumb(-1) },
@@ -380,38 +395,41 @@ fun VaultHomeScreen(
                         searching = !searching
                         if (!searching) vm.setQuery("")
                     }) {
-                        Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = "搜索")
+                        Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = stringResource(R.string.vhome_search))
                     }
                     IconButton(onClick = { vm.setViewMode(if (viewMode == "GRID") "LIST" else "GRID") }) {
                         Icon(
                             if (viewMode == "GRID") Icons.AutoMirrored.Filled.List else Icons.Filled.GridView,
-                            contentDescription = if (viewMode == "GRID") "列表视图" else "网格视图",
+                            contentDescription = stringResource(if (viewMode == "GRID") R.string.vhome_view_list else R.string.vhome_view_grid),
                         )
                     }
                     IconButton(onClick = { sortMenu = true }) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.vhome_sort))
                     }
                     DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                         SortBy.entries.forEach { s ->
                             DropdownMenuItem(
                                 // 当前档显示方向箭头(再点翻转),其他档显示勾位
-                                text = { Text(s.label) },
+                                text = { Text(stringResource(s.labelRes)) },
                                 onClick = { vm.setSortBy(s); sortMenu = false },
                                 trailingIcon = {
                                     if (s == sortBy) Icon(
                                         if (sortReversed) Icons.Filled.ArrowUpward
                                         else Icons.Filled.ArrowDownward,
-                                        contentDescription = "再点翻转方向",
+                                        contentDescription = stringResource(R.string.vhome_sort_toggle_direction),
                                     )
                                 },
                             )
                         }
                     }
+                    IconButton(onClick = { showTrash = true }) {
+                        Icon(Icons.Filled.DeleteOutline, contentDescription = stringResource(R.string.trash_open))
+                    }
                     IconButton(onClick = { vm.lockNow() }) {
-                        Icon(Icons.Filled.Lock, contentDescription = "立即锁定")
+                        Icon(Icons.Filled.Lock, contentDescription = stringResource(R.string.vhome_lock_now))
                     }
                     IconButton(onClick = onSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "库设置")
+                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.vhome_vault_settings))
                     }
                 },
             )
@@ -419,11 +437,11 @@ fun VaultHomeScreen(
         floatingActionButton = {
             Box {
                 FloatingActionButton(onClick = { importMenu = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "导入")
+                    Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.vhome_import))
                 }
                 DropdownMenu(expanded = importMenu, onDismissRequest = { importMenu = false }) {
                     DropdownMenuItem(
-                        text = { Text("导入文件") },
+                        text = { Text(stringResource(R.string.vhome_import_files)) },
                         leadingIcon = { Icon(Icons.Filled.UploadFile, null) },
                         onClick = {
                             importMenu = false
@@ -431,7 +449,7 @@ fun VaultHomeScreen(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("导入文件夹") },
+                        text = { Text(stringResource(R.string.vhome_import_folder)) },
                         leadingIcon = { Icon(Icons.Filled.Folder, null) },
                         onClick = {
                             importMenu = false
@@ -439,7 +457,7 @@ fun VaultHomeScreen(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("新建文件夹") },
+                        text = { Text(stringResource(R.string.vhome_new_folder)) },
                         leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null) },
                         onClick = { importMenu = false; newFolderDialog = true },
                     )
@@ -459,8 +477,34 @@ fun VaultHomeScreen(
                         Modifier.fillMaxWidth().padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        TransferProgressBar(t.done, t.total, t.label, Modifier.weight(1f))
-                        TextButton(onClick = { vm.cancelTransfer() }) { Text("取消") }
+                        TransferProgressBar(t.done, t.total, t.label, Modifier.weight(1f), t.fileBytes)
+                        TextButton(onClick = { vm.cancelTransfer() }) { Text(stringResource(R.string.vhome_cancel)) }
+                    }
+                }
+                // 备份提醒:超期未导出 .fvault 时温和提示(诱骗会话不显示,VM 已保证)
+                if (backupDue && !backupDismissed) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                stringResource(R.string.backup_due_banner, io.vaultx.app.core.state.AppSettings.BACKUP_REMINDER_DAYS.toInt()),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { backupDismissed = true; onSettings() }) {
+                                Text(stringResource(R.string.backup_due_action))
+                            }
+                            TextButton(onClick = { backupDismissed = true }) {
+                                Text(stringResource(R.string.backup_due_dismiss))
+                            }
+                        }
                     }
                 }
                 error?.let {
@@ -491,13 +535,13 @@ fun VaultHomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                "已删除 ${pd.entries.size} 项",
+                                stringResource(R.string.vhome_deleted_count, pd.entries.size),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.inverseOnSurface,
                                 modifier = Modifier.weight(1f),
                             )
                             TextButton(onClick = { vm.undoDelete() }) {
-                                Text("撤销", color = MaterialTheme.colorScheme.inversePrimary)
+                                Text(stringResource(R.string.vhome_undo), color = MaterialTheme.colorScheme.inversePrimary)
                             }
                         }
                     }
@@ -506,8 +550,8 @@ fun VaultHomeScreen(
                     // 传输进行中不闪"空目录"——进度条已占位,导入完自然填充
                     if (transfer == null) {
                         EmptyState(
-                            title = if (query.isNotBlank()) "没有匹配的文件" else "这里是空的",
-                            subtitle = if (query.isNotBlank()) "换个关键词试试" else "点右下角 + 导入文件或文件夹",
+                            title = stringResource(if (query.isNotBlank()) R.string.vhome_empty_no_match_title else R.string.vhome_empty_title),
+                            subtitle = stringResource(if (query.isNotBlank()) R.string.vhome_empty_no_match_subtitle else R.string.vhome_empty_subtitle),
                             modifier = Modifier.weight(1f),
                         )
                     } else {
@@ -520,7 +564,7 @@ fun VaultHomeScreen(
                                 entry = entry,
                                 vaultId = vaultId,
                                 childCount = if (entry.isFolder) folderCounts[entry.id] ?: 0 else null,
-                                subtitle = if (query.isNotBlank()) "位于:${parentPathOf(entry, index)}" else null,
+                                subtitle = if (query.isNotBlank()) stringResource(R.string.vhome_located_in, parentPathOf(entry, index, stringResource(R.string.vhome_root))) else null,
                                 selected = entry.id in selection,
                                 selectionMode = selection.isNotEmpty(),
                                 onNeedThumb = { vm.ensureThumb(entry) },
@@ -567,7 +611,7 @@ fun VaultHomeScreen(
                                 entry = entry,
                                 vaultId = vaultId,
                                 childCount = if (entry.isFolder) folderCounts[entry.id] ?: 0 else null,
-                                subtitle = if (query.isNotBlank()) "位于:${parentPathOf(entry, index)}" else null,
+                                subtitle = if (query.isNotBlank()) stringResource(R.string.vhome_located_in, parentPathOf(entry, index, stringResource(R.string.vhome_root))) else null,
                                 selected = entry.id in selection,
                                 selectionMode = selection.isNotEmpty(),
                                 draggable = selection.isNotEmpty() && entry.id in selection,
@@ -629,7 +673,7 @@ fun VaultHomeScreen(
                         Icon(iconFor(de.kind), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            if (selection.size > 1) "${de.name} 等 ${selection.size} 项" else de.name,
+                            if (selection.size > 1) stringResource(R.string.vhome_drag_multiple, de.name, selection.size) else de.name,
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,
                         )
@@ -650,19 +694,19 @@ fun VaultHomeScreen(
                         modifier = Modifier.padding(start = 12.dp, end = 4.dp),
                     )
                     IconButton(onClick = { vm.selectAll() }) {
-                        Icon(Icons.Filled.SelectAll, contentDescription = "全选")
+                        Icon(Icons.Filled.SelectAll, contentDescription = stringResource(R.string.vhome_select_all))
                     }
                     IconButton(onClick = { moveDialog = true }) {
-                        Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "移动")
+                        Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = stringResource(R.string.vhome_move))
                     }
                     IconButton(onClick = { launchExport(selection) }) {
-                        Icon(Icons.Filled.Output, contentDescription = "导出")
+                        Icon(Icons.Filled.Output, contentDescription = stringResource(R.string.vhome_export))
                     }
                     IconButton(onClick = { deleteConfirm = true }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "删除")
+                        Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.vhome_delete))
                     }
                     IconButton(onClick = { vm.clearSelection() }) {
-                        Icon(Icons.Filled.Close, contentDescription = "取消选择")
+                        Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.vhome_clear_selection))
                     }
                 }
             }
@@ -674,23 +718,23 @@ fun VaultHomeScreen(
         DropdownMenu(expanded = true, onDismissRequest = { overflowFor = null }) {
             if (isTextEntry(entry)) {
                 DropdownMenuItem(
-                    text = { Text("预览") },
+                    text = { Text(stringResource(R.string.vhome_preview)) },
                     onClick = { textPreview = entry; overflowFor = null },
                 )
             }
             DropdownMenuItem(
-                text = { Text("重命名") },
+                text = { Text(stringResource(R.string.vhome_rename)) },
                 onClick = { renameTarget = entry; overflowFor = null },
             )
             // 文件/文件夹都可副本——文件夹走 VM 的递归复制(子孙 blob 逐个重加密)
             if (entry.isFolder || entry.blobId != null) {
                 DropdownMenuItem(
-                    text = { Text("创建副本") },
+                    text = { Text(stringResource(R.string.vhome_duplicate)) },
                     onClick = { vm.duplicateEntry(entry.id); overflowFor = null },
                 )
             }
             DropdownMenuItem(
-                text = { Text("导出") },
+                text = { Text(stringResource(R.string.vhome_export)) },
                 onClick = {
                     launchExport(setOf(entry.id))
                     overflowFor = null
@@ -698,7 +742,7 @@ fun VaultHomeScreen(
             )
             if (!entry.isFolder && entry.blobId != null) {
                 DropdownMenuItem(
-                    text = { Text("加密导出(.vlt)") },
+                    text = { Text(stringResource(R.string.vhome_encrypted_export)) },
                     onClick = {
                         vltExportFor = entry
                         overflowFor = null
@@ -707,7 +751,7 @@ fun VaultHomeScreen(
             }
             if (entry.isFolder) {
                 DropdownMenuItem(
-                    text = { Text("导入文件到此处…") },
+                    text = { Text(stringResource(R.string.vhome_import_files_here)) },
                     onClick = {
                         importTarget = entry.id
                         overflowFor = null
@@ -716,7 +760,7 @@ fun VaultHomeScreen(
                 )
             }
             DropdownMenuItem(
-                text = { Text("移动到…") },
+                text = { Text(stringResource(R.string.vhome_move_to_ellipsis)) },
                 onClick = {
                     vm.clearSelection()
                     vm.toggleSelect(entry.id)
@@ -725,11 +769,11 @@ fun VaultHomeScreen(
                 },
             )
             DropdownMenuItem(
-                text = { Text("属性") },
+                text = { Text(stringResource(R.string.vhome_properties)) },
                 onClick = { infoTarget = entry; overflowFor = null },
             )
             DropdownMenuItem(
-                text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                text = { Text(stringResource(R.string.vhome_delete), color = MaterialTheme.colorScheme.error) },
                 onClick = {
                     vm.clearSelection()
                     vm.toggleSelect(entry.id)
@@ -745,14 +789,14 @@ fun VaultHomeScreen(
         var name by remember { mutableStateOf(entry.name) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("重命名") },
+            title = { Text(stringResource(R.string.vhome_rename)) },
             text = {
                 OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
             },
             confirmButton = {
-                TextButton(onClick = { vm.renameEntry(entry.id, name); renameTarget = null }) { Text("确定") }
+                TextButton(onClick = { vm.renameEntry(entry.id, name); renameTarget = null }) { Text(stringResource(R.string.vhome_ok)) }
             },
-            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text(stringResource(R.string.vhome_cancel)) } },
         )
     }
 
@@ -761,14 +805,14 @@ fun VaultHomeScreen(
         var name by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { newFolderDialog = false },
-            title = { Text("新建文件夹") },
+            title = { Text(stringResource(R.string.vhome_new_folder)) },
             text = {
                 OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
             },
             confirmButton = {
-                TextButton(onClick = { vm.newFolder(name); newFolderDialog = false }) { Text("创建") }
+                TextButton(onClick = { vm.newFolder(name); newFolderDialog = false }) { Text(stringResource(R.string.vhome_create)) }
             },
-            dismissButton = { TextButton(onClick = { newFolderDialog = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { newFolderDialog = false }) { Text(stringResource(R.string.vhome_cancel)) } },
         )
     }
 
@@ -790,23 +834,23 @@ fun VaultHomeScreen(
         }
         AlertDialog(
             onDismissRequest = { moveDialog = false },
-            title = { Text("移动到") },
+            title = { Text(stringResource(R.string.vhome_move_to)) },
             text = {
                 Column(Modifier.height(280.dp).verticalScroll(rememberScrollState())) {
                     MoveTargetRow(
-                        if (currentParent == null) "根目录(当前)" else "根目录",
+                        stringResource(if (currentParent == null) R.string.vhome_root_current else R.string.vhome_root),
                         onClick = { vm.moveEntries(selection, null); moveDialog = false },
                     )
                     folders.forEach { (f, path) ->
                         MoveTargetRow(
-                            if (f.id == currentParent) "$path(当前)" else path,
+                            if (f.id == currentParent) stringResource(R.string.vhome_path_current, path) else path,
                             onClick = { vm.moveEntries(selection, f.id); moveDialog = false },
                         )
                     }
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { moveDialog = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { moveDialog = false }) { Text(stringResource(R.string.vhome_cancel)) } },
         )
     }
 
@@ -846,7 +890,7 @@ fun VaultHomeScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { textPreview = null }) { Text("关闭") } },
+            confirmButton = { TextButton(onClick = { textPreview = null }) { Text(stringResource(R.string.vhome_close)) } },
         )
     }
 
@@ -858,11 +902,11 @@ fun VaultHomeScreen(
             title = { Text(entry.name, style = MaterialTheme.typography.titleSmall) },
             text = {
                 Column {
-                    InfoRow("类型", when (entry.kind) {
-                        MediaKind.IMAGE -> "图片"; MediaKind.VIDEO -> "视频"
-                        MediaKind.AUDIO -> "音频"; MediaKind.FOLDER -> "文件夹"
-                        MediaKind.OTHER -> "文件"
-                    })
+                    InfoRow(stringResource(R.string.vhome_info_type), stringResource(when (entry.kind) {
+                        MediaKind.IMAGE -> R.string.vhome_kind_image; MediaKind.VIDEO -> R.string.vhome_kind_video
+                        MediaKind.AUDIO -> R.string.vhome_kind_audio; MediaKind.FOLDER -> R.string.vhome_kind_folder
+                        MediaKind.OTHER -> R.string.vhome_kind_file
+                    }))
                     if (entry.isFolder) {
                         // 直接子项数 + 递归子孙数与总大小——"这个文件夹占多少空间"是常见诉求
                         val desc = remember(entry.id, index) {
@@ -870,18 +914,18 @@ fun VaultHomeScreen(
                                 i.descendantIds(entry.id).mapNotNull { i.find(it) }
                             } ?: emptyList()
                         }
-                        InfoRow("包含", "${folderCounts[entry.id] ?: 0} 项(共 ${desc.size} 个子孙条目)")
-                        InfoRow("总大小", formatBytes(desc.sumOf { it.sizeBytes }))
+                        InfoRow(stringResource(R.string.vhome_info_contains), stringResource(R.string.vhome_info_contains_value, folderCounts[entry.id] ?: 0, desc.size))
+                        InfoRow(stringResource(R.string.vhome_info_total_size), formatBytes(desc.sumOf { it.sizeBytes }))
                     } else {
-                        InfoRow("大小", formatBytes(entry.sizeBytes))
+                        InfoRow(stringResource(R.string.vhome_info_size), formatBytes(entry.sizeBytes))
                     }
-                    entry.mimeType?.let { InfoRow("MIME", it) }
-                    InfoRow("位置", parentPathOf(entry, index))
-                    InfoRow("创建", fmt.format(java.util.Date(entry.createdAt)))
-                    InfoRow("修改", fmt.format(java.util.Date(entry.updatedAt)))
+                    entry.mimeType?.let { InfoRow(stringResource(R.string.vhome_info_mime), it) }
+                    InfoRow(stringResource(R.string.vhome_info_location), parentPathOf(entry, index, stringResource(R.string.vhome_root)))
+                    InfoRow(stringResource(R.string.vhome_info_created), fmt.format(java.util.Date(entry.createdAt)))
+                    InfoRow(stringResource(R.string.vhome_info_modified), fmt.format(java.util.Date(entry.updatedAt)))
                 }
             },
-            confirmButton = { TextButton(onClick = { infoTarget = null }) { Text("关闭") } },
+            confirmButton = { TextButton(onClick = { infoTarget = null }) { Text(stringResource(R.string.vhome_close)) } },
         )
     }
 
@@ -889,18 +933,20 @@ fun VaultHomeScreen(
     vltImportQueue.firstOrNull()?.let { src ->
         var pw by remember(src.name) { mutableStateOf("") }
         var err by remember(src.name) { mutableStateOf<String?>(null) }
+        // 回调里用到的提示先在组合层捕获,协程回调不能直接调 stringResource
+        val errTooShort = stringResource(R.string.vhome_password_min_length)
         AlertDialog(
             onDismissRequest = {
                 // 关掉=放弃这个文件,继续队列下一个
                 vltImportQueue = vltImportQueue.drop(1)
                 if (vltImportQueue.isEmpty()) vltImportTarget = null
             },
-            title = { Text("解密导入「${src.name}」") },
+            title = { Text(stringResource(R.string.vhome_vlt_import_title, src.name)) },
             text = {
                 Column(Modifier.imePadding()) {
-                    Text("这是一个 .vlt 便携密文。输入它的一次性密码,解密后直接存入当前库。")
+                    Text(stringResource(R.string.vhome_vlt_import_message))
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(pw, { pw = it; err = null }, "导出时设的密码", isError = err != null, supportingText = err)
+                    PasswordField(pw, { pw = it; err = null }, stringResource(R.string.vhome_vlt_import_password_hint), isError = err != null, supportingText = err)
                 }
             },
             confirmButton = {
@@ -908,23 +954,23 @@ fun VaultHomeScreen(
                 TextButton(
                     enabled = transfer == null,
                     onClick = {
-                        if (pw.length < 4) { err = "至少 4 位"; return@TextButton }
-                        vm.importVlt(src, pw.toCharArray(), vltImportTarget) { ok ->
-                        // 失败(错密码/格式坏)留在队首并内联提示,可重试或跳过;成功弹下一个
-                        if (ok) {
+                        if (pw.length < 4) { err = errTooShort; return@TextButton }
+                        vm.importVlt(src, pw.toCharArray(), vltImportTarget) { failure ->
+                        // null = 成功/用户取消 → 弹下一个;非空 = 真实失败原因,留在队首可重试或跳过
+                        if (failure == null) {
                             vltImportQueue = vltImportQueue.drop(1)
                             if (vltImportQueue.isEmpty()) vltImportTarget = null
                         } else {
-                            err = "密码错误或文件已损坏"
+                            err = failure
                         }
                     }
-                }) { Text("解密导入") }
+                }) { Text(stringResource(R.string.vhome_vlt_import_confirm)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     vltImportQueue = vltImportQueue.drop(1)
                     if (vltImportQueue.isEmpty()) vltImportTarget = null
-                }) { Text("跳过") }
+                }) { Text(stringResource(R.string.vhome_skip)) }
             },
         )
     }
@@ -935,31 +981,33 @@ fun VaultHomeScreen(
             var pw by remember { mutableStateOf("") }
             var pw2 by remember { mutableStateOf("") }
             var err by remember { mutableStateOf<String?>(null) }
+            val errTooShort = stringResource(R.string.vhome_password_min_length)
+            val errMismatch = stringResource(R.string.vhome_password_mismatch)
             AlertDialog(
                 onDismissRequest = { vltExportFor = null },
-                title = { Text("加密导出「${entry.name}」") },
+                title = { Text(stringResource(R.string.vhome_vlt_export_title, entry.name)) },
                 text = {
                     Column(Modifier.imePadding()) {
-                        Text("为该 .vlt 文件设一个独立密码(与库密码无关);持有该密码的人可在无锁模式下解开。")
+                        Text(stringResource(R.string.vhome_vlt_export_message))
                         Spacer(Modifier.height(8.dp))
-                        PasswordField(pw, { pw = it; err = null }, "导出密码")
+                        PasswordField(pw, { pw = it; err = null }, stringResource(R.string.vhome_vlt_export_password_hint))
                         Spacer(Modifier.height(4.dp))
-                        PasswordField(pw2, { pw2 = it; err = null }, "确认密码", isError = err != null, supportingText = err)
+                        PasswordField(pw2, { pw2 = it; err = null }, stringResource(R.string.vhome_vlt_export_password_confirm_hint), isError = err != null, supportingText = err)
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         when {
-                            pw.length < 4 -> err = "至少 4 位"
-                            pw != pw2 -> err = "两次输入不一致"
+                            pw.length < 4 -> err = errTooShort
+                            pw != pw2 -> err = errMismatch
                             else -> {
                                 vltPassword = pw
                                 vltLauncher.launch("${entry.name}.vlt")
                             }
                         }
-                    }) { Text("选择保存位置") }
+                    }) { Text(stringResource(R.string.vhome_choose_save_location)) }
                 },
-                dismissButton = { TextButton(onClick = { vltExportFor = null }) { Text("取消") } },
+                dismissButton = { TextButton(onClick = { vltExportFor = null }) { Text(stringResource(R.string.vhome_cancel)) } },
             )
         }
     }
@@ -971,10 +1019,9 @@ fun VaultHomeScreen(
             selection.flatMap { id -> (index?.descendantIds(id) ?: emptySet()) + id }.toSet().size
         }
         io.vaultx.app.ui.components.ConfirmDialog(
-            title = "删除 $doomedCount 项?",
-            text = if (doomedCount > selection.size) "文件夹内的全部内容会一并删除。删除后有 8 秒撤销窗口。"
-            else "删除后有 8 秒撤销窗口,可在底部条中恢复。",
-            confirmText = "删除",
+            title = stringResource(R.string.vhome_delete_confirm_title, doomedCount),
+            text = stringResource(if (doomedCount > selection.size) R.string.vhome_delete_confirm_cascade else R.string.vhome_delete_confirm_simple),
+            confirmText = stringResource(R.string.vhome_delete),
             danger = true,
             onConfirm = { vm.deleteEntries(selection); deleteConfirm = false },
             onDismiss = { deleteConfirm = false },
@@ -999,10 +1046,11 @@ private fun folderPathOf(
     return parts.joinToString(" / ")
 }
 
-/** 条目所在目录的路径标签(属性对话框用):"根目录 / a / b"。 */
+/** 条目所在目录的路径标签(属性对话框用):"根目录 / a / b";根标签由调用方按语言传入。 */
 private fun parentPathOf(
     entry: VaultEntry,
     index: io.vaultx.app.core.vault.VaultIndex?,
+    rootLabel: String,
 ): String {
     val parts = mutableListOf<String>()
     val seen = hashSetOf(entry.id)
@@ -1013,7 +1061,7 @@ private fun parentPathOf(
         parts.add(0, p.name)
         cur = p.parentId
     }
-    return if (parts.isEmpty()) "根目录" else parts.joinToString(" / ")
+    return if (parts.isEmpty()) rootLabel else parts.joinToString(" / ")
 }
 
 @Composable
@@ -1078,7 +1126,7 @@ private fun EntryListRow(
             Column(Modifier.weight(1f)) {
                 Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
                 Text(
-                    subtitle ?: if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
+                    subtitle ?: if (entry.isFolder) stringResource(R.string.vhome_item_count, childCount ?: 0) else formatBytes(entry.sizeBytes),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -1222,7 +1270,7 @@ private fun EntryCell(
                     maxLines = 2,
                 )
                 Text(
-                    subtitle ?: if (entry.isFolder) "${childCount ?: 0} 项" else formatBytes(entry.sizeBytes),
+                    subtitle ?: if (entry.isFolder) stringResource(R.string.vhome_item_count, childCount ?: 0) else formatBytes(entry.sizeBytes),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

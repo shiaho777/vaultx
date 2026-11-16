@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SessionViewModel busy/error messages -->
+    <string name="svm_importing">Importing…</string>
+    <string name="svm_import_failed">Import failed: %1$s</string>
+    <string name="svm_decrypting">Decrypting…</string>
+    <string name="svm_wrong_password">Wrong password</string>
+    <string name="svm_decrypt_failed">Decryption failed: %1$s</string>
+    <string name="svm_export_encrypted_busy">Encrypting export…</string>
+    <string name="svm_exporting">Exporting…</string>
+    <string name="svm_export_failed">Export failed: %1$s</string>
+    <string name="svm_cancelled">Cancelled</string>
+
+    <!-- PasswordStrength labels -->
+    <string name="pw_weak">Weak</string>
+    <string name="pw_medium">Medium</string>
+    <string name="pw_strong">Strong</string>
+    <string name="pw_very_strong">Very strong</string>
+</resources>

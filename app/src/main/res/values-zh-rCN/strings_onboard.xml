@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onboard_skip">跳过</string>
+    <string name="onboard_next">下一页</string>
+    <string name="onboard_start">开始使用</string>
+    <string name="onboard_1_title">文件只在本机加密保存</string>
+    <string name="onboard_1_body">导入即加密,数据只存在应用私有存储里。无账号、不联网、无云端。密钥由你的密码派生——除了你,没人能打开这些文件。</string>
+    <string name="onboard_2_title">密码无法找回——这是刻意设计</string>
+    <string name="onboard_2_body">没有「忘记密码」。密码丢失,数据就永远丢失。请设一个记得住的强密码;应对被迫交密码的场合,还可以配置诱骗密码。</string>
+    <string name="onboard_3_title">定期留一份加密备份</string>
+    <string name="onboard_3_body">在库列表定期导出 .fvault 归档。它全程保持加密,凭密码可在任何设备恢复。备份超期时,应用会温和提醒你。</string>
+</resources>

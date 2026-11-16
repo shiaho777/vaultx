@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onboard_skip">Skip</string>
+    <string name="onboard_next">Next</string>
+    <string name="onboard_start">Get started</string>
+    <string name="onboard_1_title">Your files, encrypted on device</string>
+    <string name="onboard_1_body">VaultX encrypts everything at import time and stores it only in app-private storage. No account, no network permission, no cloud. Your password derives the keys — nobody else can open your files.</string>
+    <string name="onboard_2_title">No password recovery — by design</string>
+    <string name="onboard_2_body">There is no \"forgot password\". If you lose your password, your data is gone forever. Choose a strong password you can remember, and consider a decoy password for coercion scenarios.</string>
+    <string name="onboard_3_title">Keep an encrypted backup</string>
+    <string name="onboard_3_body">Export a .fvault archive from the vault list regularly. It stays fully encrypted and can be restored on any device with your password. VaultX will remind you when a backup is overdue.</string>
+</resources>

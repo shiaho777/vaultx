@@ -24,7 +24,7 @@ import kotlinx.coroutines.SupervisorJob
  * 手动依赖容器:避免 DI 框架(KSP 会增加构建脆弱性)。
  * 所有核心引擎在这里创建与接线。
  */
-class AppContainer(private val context: Context) {
+class AppContainer(val context: Context) {
 
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -45,6 +45,14 @@ class AppContainer(private val context: Context) {
     val safTransfer = SafTransfer(context)
     val sessionManager = SessionManager(context.cacheDir)
     val biometrics = BiometricKeystore()
+
+    /**
+     * 按库共享的索引互斥锁:VM 的读改写与设置页的索引形态转换(总密码/诱骗)
+     * 必须串行,否则并发写会互相覆盖。VM 在导航栈中按 key 缓存,设置页取同一把。
+     */
+    private val indexMutexes = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+    fun indexMutexFor(vaultId: String): kotlinx.coroutines.sync.Mutex =
+        indexMutexes.getOrPut(vaultId) { kotlinx.coroutines.sync.Mutex() }
 
     fun init() {
         TinkStreaming.ensureRegistered()

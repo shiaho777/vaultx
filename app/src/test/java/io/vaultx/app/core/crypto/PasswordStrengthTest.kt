@@ -1,5 +1,6 @@
 package io.vaultx.app.core.crypto
 
+import io.vaultx.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,7 +28,10 @@ class PasswordStrengthTest {
 
     @Test
     fun labels() {
-        assertEquals("弱", PasswordStrength.label("abc"))
-        assertEquals("很强", PasswordStrength.label("Abcdefgh1234!@"))
+        assertEquals(0, PasswordStrength.labelRes(PasswordStrength.score("")))
+        assertEquals(R.string.pw_weak, PasswordStrength.labelRes(PasswordStrength.score("abc")))
+        assertEquals(R.string.pw_medium, PasswordStrength.labelRes(2))
+        assertEquals(R.string.pw_strong, PasswordStrength.labelRes(3))
+        assertEquals(R.string.pw_very_strong, PasswordStrength.labelRes(PasswordStrength.score("Abcdefgh1234!@")))
     }
 }

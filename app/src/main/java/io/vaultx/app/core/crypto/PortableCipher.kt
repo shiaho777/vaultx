@@ -122,7 +122,7 @@ object PortableCipher {
             params.iterations <= 0 || params.iterations > MAX_KDF_ITERATIONS ||
             params.parallelism <= 0 || params.parallelism > MAX_KDF_PARALLELISM
         ) {
-            throw PortableFormatException("KDF 参数异常(文件可能被构造用来耗尽内存)")
+            throw PortableFormatException("invalid KDF parameters (file may be crafted to exhaust memory)")
         }
         val saltLen = header.readUnsignedByte()
         if (saltLen <= 0 || saltLen > 64) throw PortableFormatException("bad salt length")

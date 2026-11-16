@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
@@ -46,6 +47,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.media.VaultDataSource
 import io.vaultx.app.core.vault.MediaKind
 import kotlinx.coroutines.delay
@@ -85,6 +87,8 @@ fun AudioPlayerScreen(
     }
     val startIndex = auds?.indexOfFirst { it.id == entryId }?.coerceAtLeast(0) ?: 0
 
+    // 组合层捕获文案模板,错误回调里只做格式化
+    val playErrorFmt = stringResource(R.string.aplay_error)
     var playError by remember { mutableStateOf<String?>(null) }
     var mediaIndex by remember { mutableIntStateOf(startIndex) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -108,7 +112,7 @@ fun AudioPlayerScreen(
                 .apply {
                     addListener(object : Player.Listener {
                         override fun onPlayerError(error: PlaybackException) {
-                            playError = "播放失败:${error.errorCodeName}"
+                            playError = playErrorFmt.format(error.errorCodeName)
                         }
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -156,7 +160,7 @@ fun AudioPlayerScreen(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    playError ?: "无法打开该音频",
+                    playError ?: stringResource(R.string.aplay_open_failed),
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
@@ -222,7 +226,7 @@ fun AudioPlayerScreen(
                 // 播放控制条:上一首 / 播放暂停 / 下一首
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { player.seekToPreviousMediaItem() }, enabled = hasPrev) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = "上一首")
+                        Icon(Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.aplay_previous))
                     }
                     IconButton(
                         onClick = { if (isPlaying) player.pause() else player.play() },
@@ -230,12 +234,12 @@ fun AudioPlayerScreen(
                     ) {
                         Icon(
                             if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            contentDescription = if (isPlaying) stringResource(R.string.aplay_pause) else stringResource(R.string.aplay_play),
                             modifier = Modifier.size(40.dp),
                         )
                     }
                     IconButton(onClick = { player.seekToNextMediaItem() }, enabled = hasNext) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = "下一首")
+                        Icon(Icons.Filled.SkipNext, contentDescription = stringResource(R.string.aplay_next))
                     }
                 }
             }
@@ -250,7 +254,7 @@ fun AudioPlayerScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.aplay_back))
             }
             Spacer(Modifier.width(4.dp))
         }

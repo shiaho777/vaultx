@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ImageViewerScreen -->
+    <string name="iview_open_failed">Cannot open this file</string>
+    <string name="iview_back">Back</string>
+
+    <!-- VideoPlayerScreen -->
+    <string name="vplay_error">Playback failed: %1$s</string>
+    <string name="vplay_open_failed">Cannot open this video</string>
+    <string name="vplay_back">Back</string>
+    <string name="vplay_previous">Previous video</string>
+    <string name="vplay_next">Next video</string>
+
+    <!-- AudioPlayerScreen -->
+    <string name="aplay_error">Playback failed: %1$s</string>
+    <string name="aplay_open_failed">Cannot open this audio</string>
+    <string name="aplay_previous">Previous track</string>
+    <string name="aplay_pause">Pause</string>
+    <string name="aplay_play">Play</string>
+    <string name="aplay_next">Next track</string>
+    <string name="aplay_back">Back</string>
+</resources>

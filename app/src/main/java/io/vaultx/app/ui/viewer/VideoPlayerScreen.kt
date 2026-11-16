@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
@@ -38,6 +39,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.media.VaultDataSource
 import io.vaultx.app.core.vault.MediaKind
 
@@ -77,6 +79,8 @@ fun VideoPlayerScreen(
     }
     val startIndex = vids?.indexOfFirst { it.id == entryId }?.coerceAtLeast(0) ?: 0
 
+    // 组合层捕获文案模板,错误回调里只做格式化
+    val playErrorFmt = stringResource(R.string.vplay_error)
     var playError by remember { mutableStateOf<String?>(null) }
     var mediaIndex by remember { mutableIntStateOf(startIndex) }
     var hasPrev by remember { mutableStateOf(false) }
@@ -94,7 +98,7 @@ fun VideoPlayerScreen(
                 .apply {
                     addListener(object : Player.Listener {
                         override fun onPlayerError(error: PlaybackException) {
-                            playError = "播放失败:${error.errorCodeName}"
+                            playError = playErrorFmt.format(error.errorCodeName)
                         }
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -141,7 +145,7 @@ fun VideoPlayerScreen(
                     androidx.compose.material3.CircularProgressIndicator()
                 } else {
                     Text(
-                        playError ?: "无法打开该视频",
+                        playError ?: stringResource(R.string.vplay_open_failed),
                         color = Color.White,
                         style = MaterialTheme.typography.bodyLarge,
                     )
@@ -160,7 +164,7 @@ fun VideoPlayerScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.vplay_back), tint = Color.White)
             }
             Spacer(Modifier.width(4.dp))
             Text(
@@ -176,7 +180,7 @@ fun VideoPlayerScreen(
                     enabled = hasPrev,
                 ) {
                     Icon(
-                        Icons.Filled.SkipPrevious, contentDescription = "上一部",
+                        Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.vplay_previous),
                         tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.3f),
                     )
                 }
@@ -185,7 +189,7 @@ fun VideoPlayerScreen(
                     enabled = hasNext,
                 ) {
                     Icon(
-                        Icons.Filled.SkipNext, contentDescription = "下一部",
+                        Icons.Filled.SkipNext, contentDescription = stringResource(R.string.vplay_next),
                         tint = if (hasNext) Color.White else Color.White.copy(alpha = 0.3f),
                     )
                 }

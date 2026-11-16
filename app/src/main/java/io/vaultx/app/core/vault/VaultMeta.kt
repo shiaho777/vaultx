@@ -16,6 +16,11 @@ data class VaultMeta(
     val vaultId: String,
     val name: String,
     val createdAt: Long,
+    /**
+     * 格式版本号:字段演进/迁移的锚点。旧文件无此字段 → 默认 1(初始格式)。
+     * 读到高于本端支持的版本必须拒绝(见 [fromJson]),防止旧版本应用把新格式写坏。
+     */
+    val formatVersion: Int = FORMAT_VERSION,
     /** 主链 Argon2id 参数 */
     val kdfMemoryKiB: Int,
     val kdfIterations: Int,
@@ -70,12 +75,16 @@ data class VaultMeta(
     companion object {
         const val FILE_NAME = "meta.vault"
 
+        /** 当前格式版本。字段新增(带默认值)不升版本;语义变更/迁移需求才递增。 */
+        const val FORMAT_VERSION = 1
+
         // KDF 参数钳制上限(与 PortableCipher 同口径):512MiB/64 次/8 路
         private const val MAX_KDF_MEMORY_KIB = 512 * 1024
         private const val MAX_KDF_ITERATIONS = 64
         private const val MAX_KDF_PARALLELISM = 8
 
-        private val json = Json { ignoreUnknownKeys = true }
+        // encodeDefaults:formatVersion 等默认值字段必须落盘,否则版本锚点形同虚设
+        private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
         private val enc = Base64.getEncoder()
 
         fun newMeta(
@@ -99,6 +108,13 @@ data class VaultMeta(
             indexEncrypted = masterGate,
         )
 
-        fun fromJson(text: String): VaultMeta = json.decodeFromString(serializer(), text)
+        fun fromJson(text: String): VaultMeta {
+            val meta = json.decodeFromString(serializer(), text)
+            // 未来格式拒绝读取:旧版本应用继续写会把新语义字段丢掉(静默数据损坏)
+            require(meta.formatVersion <= FORMAT_VERSION) {
+                "unsupported vault format version ${meta.formatVersion} (max $FORMAT_VERSION); upgrade the app"
+            }
+            return meta
+        }
     }
 }

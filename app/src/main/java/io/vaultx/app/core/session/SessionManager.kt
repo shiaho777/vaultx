@@ -54,17 +54,28 @@ class SessionManager(private val cacheDir: File) {
         return f
     }
 
-    /** 导入一个文件进临时空间;重名自动消解。返回最终条目。 */
-    fun importFile(name: String, input: InputStream): SessionFile {
+    /** 导入一个文件进临时空间;重名自动消解。[isCancelled] 命中即中止并清理半成品。 */
+    fun importFile(name: String, input: InputStream, isCancelled: () -> Boolean = { false }): SessionFile {
         val finalName = uniqueName(sanitizeName(name))
         val target = File(sessionDir().apply { mkdirs() }, finalName)
         try {
-            target.outputStream().use { out -> input.copyTo(out) }
+            target.outputStream().use { out -> copyChecked(input, out, isCancelled) }
         } catch (e: Throwable) {
             secureDelete(target)
             throw e
         }
         return SessionFile(finalName, target.length(), kindOf(finalName))
+    }
+
+    /** 分块拷贝,块边界查取消;命中抛 [SessionCancelledException]。 */
+    private fun copyChecked(ins: InputStream, out: OutputStream, isCancelled: () -> Boolean) {
+        val buf = ByteArray(64 * 1024)
+        while (true) {
+            if (isCancelled()) throw SessionCancelledException()
+            val n = ins.read(buf)
+            if (n < 0) return
+            out.write(buf, 0, n)
+        }
     }
 
     /** 改名;目标名冲突时仍自动消解,返回新条目。 */
@@ -86,10 +97,24 @@ class SessionManager(private val cacheDir: File) {
      * 加密转换:会话文件 → `.vlt` 便携密文(一次性密码)。
      * @param output 目的流(SAF 打开的 uri 输出)
      */
-    fun exportAsVlt(storedName: String, password: CharArray, output: OutputStream, params: KdfParams = KdfParams.DEFAULT) {
+    fun exportAsVlt(
+        storedName: String,
+        password: CharArray,
+        output: OutputStream,
+        params: KdfParams = KdfParams.DEFAULT,
+        isCancelled: () -> Boolean = { false },
+    ) {
         val src = file(storedName)
         require(src.isFile) { "no such session file" }
-        src.inputStream().use { ins -> PortableCipher.encryptTo(password, ins, output, params) }
+        try {
+            src.inputStream().use { ins ->
+                PortableCipher.openEncryptingStream(password, output, params).use { enc ->
+                    copyChecked(ins, enc, isCancelled)
+                }
+            }
+        } finally {
+            java.util.Arrays.fill(password, 0.toChar())
+        }
     }
 
     /**
@@ -97,7 +122,7 @@ class SessionManager(private val cacheDir: File) {
      * @throws WrongPasswordException 密码错
      * @throws PortableFormatException 不是 .vlt 文件
      */
-    fun importVlt(displayName: String, input: InputStream, password: CharArray): SessionFile {
+    fun importVlt(displayName: String, input: InputStream, password: CharArray, isCancelled: () -> Boolean = { false }): SessionFile {
         // 去掉 .vlt 后缀作为展示名(大小写都剥)
         val base = sanitizeName(
             if (displayName.endsWith(".vlt", ignoreCase = true)) displayName.dropLast(4) else displayName,
@@ -105,10 +130,16 @@ class SessionManager(private val cacheDir: File) {
         val finalName = uniqueName(base)
         val target = File(sessionDir().apply { mkdirs() }, finalName)
         try {
-            target.outputStream().use { out -> PortableCipher.decryptTo(password, input, out) }
+            target.outputStream().use { out ->
+                PortableCipher.openDecryptingStream(password, input).use { dec ->
+                    copyChecked(dec, out, isCancelled)
+                }
+            }
         } catch (e: Exception) {
             secureDelete(target)
             throw e
+        } finally {
+            java.util.Arrays.fill(password, 0.toChar())
         }
         return SessionFile(finalName, target.length(), kindOf(finalName))
     }
@@ -170,3 +201,6 @@ class SessionManager(private val cacheDir: File) {
         private val AUDIO_EXTS = setOf("mp3", "aac", "flac", "wav", "ogg", "m4a", "opus", "wma")
     }
 }
+
+/** 用户取消会话传输(与失败区分:不算错误,半成品已清理)。 */
+class SessionCancelledException : Exception()

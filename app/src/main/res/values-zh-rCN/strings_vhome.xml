@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Top bar -->
+    <string name="vhome_navigate_up">上一层</string>
+    <string name="vhome_search_placeholder">搜索文件名</string>
+    <string name="vhome_default_title">保险库</string>
+    <string name="vhome_root">根目录</string>
+    <string name="vhome_search">搜索</string>
+    <string name="vhome_view_list">列表视图</string>
+    <string name="vhome_view_grid">网格视图</string>
+    <string name="vhome_sort">排序</string>
+    <string name="vhome_sort_toggle_direction">再点翻转方向</string>
+    <string name="vhome_lock_now">立即锁定</string>
+    <string name="vhome_vault_settings">库设置</string>
+
+    <!-- Import menu -->
+    <string name="vhome_import">导入</string>
+    <string name="vhome_import_files">导入文件</string>
+    <string name="vhome_import_folder">导入文件夹</string>
+    <string name="vhome_new_folder">新建文件夹</string>
+    <string name="vhome_create">创建</string>
+
+    <!-- Transfer / undo / empty states -->
+    <string name="vhome_cancel">取消</string>
+    <string name="vhome_deleted_count">已删除 %1$d 项</string>
+    <string name="vhome_undo">撤销</string>
+    <string name="vhome_empty_no_match_title">没有匹配的文件</string>
+    <string name="vhome_empty_no_match_subtitle">换个关键词试试</string>
+    <string name="vhome_empty_title">这里是空的</string>
+    <string name="vhome_empty_subtitle">点右下角 + 导入文件或文件夹</string>
+    <string name="vhome_located_in">位于:%1$s</string>
+
+    <!-- Drag shadow / selection toolbar -->
+    <string name="vhome_drag_multiple">%1$s 等 %2$d 项</string>
+    <string name="vhome_select_all">全选</string>
+    <string name="vhome_move">移动</string>
+    <string name="vhome_export">导出</string>
+    <string name="vhome_delete">删除</string>
+    <string name="vhome_clear_selection">取消选择</string>
+
+    <!-- Entry overflow menu -->
+    <string name="vhome_preview">预览</string>
+    <string name="vhome_rename">重命名</string>
+    <string name="vhome_duplicate">创建副本</string>
+    <string name="vhome_encrypted_export">加密导出(.vlt)</string>
+    <string name="vhome_import_files_here">导入文件到此处…</string>
+    <string name="vhome_move_to_ellipsis">移动到…</string>
+    <string name="vhome_properties">属性</string>
+
+    <!-- Dialog commons -->
+    <string name="vhome_ok">确定</string>
+    <string name="vhome_close">关闭</string>
+
+    <!-- Move dialog -->
+    <string name="vhome_move_to">移动到</string>
+    <string name="vhome_root_current">根目录(当前)</string>
+    <string name="vhome_path_current">%1$s(当前)</string>
+
+    <!-- Properties dialog -->
+    <string name="vhome_info_type">类型</string>
+    <string name="vhome_kind_image">图片</string>
+    <string name="vhome_kind_video">视频</string>
+    <string name="vhome_kind_audio">音频</string>
+    <string name="vhome_kind_folder">文件夹</string>
+    <string name="vhome_kind_file">文件</string>
+    <string name="vhome_info_contains">包含</string>
+    <string name="vhome_info_contains_value">%1$d 项(共 %2$d 个子孙条目)</string>
+    <string name="vhome_info_total_size">总大小</string>
+    <string name="vhome_info_size">大小</string>
+    <string name="vhome_info_mime">MIME</string>
+    <string name="vhome_info_location">位置</string>
+    <string name="vhome_info_created">创建</string>
+    <string name="vhome_info_modified">修改</string>
+
+    <!-- .vlt import dialog -->
+    <string name="vhome_vlt_import_title">解密导入「%1$s」</string>
+    <string name="vhome_vlt_import_message">这是一个 .vlt 便携密文。输入它的一次性密码,解密后直接存入当前库。</string>
+    <string name="vhome_vlt_import_password_hint">导出时设的密码</string>
+    <string name="vhome_password_min_length">至少 4 位</string>
+    <string name="vhome_vlt_import_failed">密码错误或文件已损坏</string>
+    <string name="vhome_vlt_import_confirm">解密导入</string>
+    <string name="vhome_skip">跳过</string>
+
+    <!-- .vlt export dialog -->
+    <string name="vhome_vlt_export_title">加密导出「%1$s」</string>
+    <string name="vhome_vlt_export_message">为该 .vlt 文件设一个独立密码(与库密码无关);持有该密码的人可在无锁模式下解开。</string>
+    <string name="vhome_vlt_export_password_hint">导出密码</string>
+    <string name="vhome_vlt_export_password_confirm_hint">确认密码</string>
+    <string name="vhome_password_mismatch">两次输入不一致</string>
+    <string name="vhome_choose_save_location">选择保存位置</string>
+
+    <!-- Delete confirmation -->
+    <string name="vhome_delete_confirm_title">删除 %1$d 项?</string>
+    <string name="vhome_delete_confirm_cascade">文件夹内的全部内容会一并删除。删除后有 8 秒撤销窗口。</string>
+    <string name="vhome_delete_confirm_simple">删除后有 8 秒撤销窗口,可在底部条中恢复。</string>
+
+    <!-- Entry rows / cells -->
+    <string name="vhome_item_count">%1$d 项</string>
+</resources>

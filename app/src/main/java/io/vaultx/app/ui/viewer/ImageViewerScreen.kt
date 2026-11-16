@@ -42,10 +42,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.media.VaultImageRef
 import io.vaultx.app.core.vault.MediaKind
 import kotlin.math.min
@@ -176,7 +178,7 @@ fun ImageViewerScreen(
             androidx.compose.material3.CircularProgressIndicator()
         } else if (imgs.isEmpty()) {
             Text(
-                "无法打开该文件",
+                stringResource(R.string.iview_open_failed),
                 color = Color.White,
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -224,7 +226,7 @@ fun ImageViewerScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.iview_back), tint = Color.White)
                 }
                 Spacer(Modifier.width(4.dp))
                 Text(

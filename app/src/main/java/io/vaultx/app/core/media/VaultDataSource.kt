@@ -30,13 +30,20 @@ class VaultDataSource(
     private var bytesRemaining = 0L
 
     override fun open(dataSpec: DataSpec): Long {
+        // 复用实例连播/重试时可能不经 close 直接再 open:先释放旧通道,防句柄泄漏
+        close()
         val id = dataSpec.uri.lastPathSegment
             ?: throw IOException("vaultx uri missing blob id: ${dataSpec.uri}")
         blobId = id
         val len = lengthOf(id)
         val ch = vaultManager.openBlobChannel(unlocked, id)
         channel = ch
-        ch.position(dataSpec.position)
+        try {
+            ch.position(dataSpec.position)
+        } catch (e: Throwable) {
+            close()
+            throw e
+        }
         bytesRemaining = (len - dataSpec.position).coerceAtLeast(0)
         return bytesRemaining
     }
@@ -54,9 +61,13 @@ class VaultDataSource(
     override fun getUri(): Uri = Uri.parse("vaultx://${unlocked.vaultId}/${blobId ?: ""}")
 
     override fun close() {
-        channel?.close()
-        channel = null
-        blobId = null
+        try {
+            channel?.close()
+        } finally {
+            channel = null
+            blobId = null
+            bytesRemaining = 0
+        }
     }
 
     override fun addTransferListener(transferListener: TransferListener) {}
