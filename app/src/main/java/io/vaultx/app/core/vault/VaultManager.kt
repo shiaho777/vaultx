@@ -86,6 +86,12 @@ class VaultManager(private val rootDir: File) {
 
     fun listVaults(): List<VaultMeta> =
         vaultsRoot().listFiles()
+            ?.onEach { dir ->
+                // 建库崩溃留下的隐藏暂存壳(密钥派生中进程被杀):无任何用户数据,清掉
+                if (dir.isDirectory && dir.name.endsWith(".building") && dir.name.startsWith(".")) {
+                    dir.deleteRecursively()
+                }
+            }
             ?.filter { it.isDirectory && !it.name.startsWith(".") }
             ?.onEach { dir ->
                 // 清理建库中断留下的孤儿目录(如 OOM 在写 meta 前崩溃)
@@ -116,9 +122,13 @@ class VaultManager(private val rootDir: File) {
             val vaultId = UUID.randomUUID().toString()
             val dir = vaultDir(vaultId)
             check(!dir.exists()) { "vault id collision" }
-            dir.mkdirs()
-            blobsDir(vaultId).mkdirs()
-            thumbsDir(vaultId).mkdirs()
+            // 建库期间用 "." 前缀的暂存目录:Argon2 派生耗时较长,此窗口内目录没有 meta,
+            // 并发的 listVaults 会把"无 meta 目录"当孤儿清掉;隐藏目录不在其扫描范围。
+            // meta 原子落盘后再改名到正式位置——对外要么完整可见,要么完全不可见。
+            val staging = File(vaultsRoot(), ".$vaultId.building")
+            staging.mkdirs()
+            File(staging, BLOBS_DIR).mkdirs()
+            File(staging, THUMBS_DIR).mkdirs()
 
             val salt = ByteArray(SALT_LENGTH).also(random::nextBytes)
             val vmk = VaultCrypto.generateVmk()
@@ -126,7 +136,7 @@ class VaultManager(private val rootDir: File) {
                 Argon2idKdf.derive(password, salt, kdfParams)
             } catch (e: Throwable) {
                 // 派生失败(如内存不足)时清除半成品目录,不留孤儿库壳
-                dir.deleteRecursively()
+                staging.deleteRecursively()
                 throw e
             }
             val wrapped = KeyWrap.wrap(kek, vmk)
@@ -142,7 +152,11 @@ class VaultManager(private val rootDir: File) {
                 wrappedVmk = wrapped,
                 masterGate = masterGate,
             )
-            writeAtomic(metaFile(vaultId), meta.toJson().toByteArray(Charsets.UTF_8))
+            writeAtomic(File(staging, VaultMeta.FILE_NAME), meta.toJson().toByteArray(Charsets.UTF_8))
+            if (!staging.renameTo(dir)) {
+                staging.deleteRecursively()
+                throw IOException("vault staging rename failed: $vaultId")
+            }
 
             // 写入初始空索引;onCreated 由回调方接管会话(VMK 不清零),否则用完即焚
             val unlocked = unlock(vaultId, password)
@@ -342,9 +356,9 @@ class VaultManager(private val rootDir: File) {
             // 双链共存时新密码不能撞上另一条链:真链永远先命中,
             // 撞了对方链就悄悄死掉(与 enableDecoy 同一防护,两个方向)
             if (unlocked.viaDecoy) {
-                require(!tryRealPassword(unlocked.meta, newPassword)) { "诱骗密码不能与真密码相同" }
+                require(!tryRealPassword(unlocked.meta, newPassword)) { "decoy password must differ from the real password" }
             } else if (unlocked.meta.hasDecoy) {
-                require(!tryDecoyPassword(unlocked.meta, newPassword)) { "密码不能与诱骗密码相同" }
+                require(!tryDecoyPassword(unlocked.meta, newPassword)) { "password must differ from the decoy password" }
             }
             // 按会话所属链取参数:改真密码用主链参数,改诱骗密码用诱骗链参数
             val params = if (unlocked.viaDecoy) unlocked.meta.kdfDecoyParams else unlocked.meta.kdfParams
@@ -362,7 +376,7 @@ class VaultManager(private val rootDir: File) {
      * 配置了诱骗库后总密码不可关闭——明文索引会把真库条目数泄露给诱骗密码持有者。
      */
     fun setMasterGate(unlocked: UnlockedVault, index: VaultIndex, enabled: Boolean, now: Long = System.currentTimeMillis()) {
-        check(enabled || !unlocked.meta.hasDecoy) { "存在诱骗库时,总密码不能关闭" }
+        check(enabled || !unlocked.meta.hasDecoy) { "master password cannot be disabled while a decoy vault exists" }
         val vaultId = unlocked.vaultId
         val plain = indexPlainFile(vaultId)
         val enc = indexEncFile(vaultId)
@@ -386,15 +400,15 @@ class VaultManager(private val rootDir: File) {
      * 崩溃安全:先写诱骗索引再写 meta;meta 未落盘前诱骗索引只是无害孤儿。
      */
     fun enableDecoy(unlocked: UnlockedVault, decoyPassword: CharArray, now: Long = System.currentTimeMillis()) {
-        check(!unlocked.viaDecoy) { "诱骗会话中不能再配置诱骗" }
-        check(!unlocked.meta.hasDecoy) { "诱骗库已存在" }
+        check(!unlocked.viaDecoy) { "cannot configure decoy from a decoy session" }
+        check(!unlocked.meta.hasDecoy) { "decoy vault already exists" }
         require(decoyPassword.size >= MIN_PASSWORD_LENGTH) { "password too short" }
         try {
             val meta = unlocked.meta
             val vaultId = unlocked.vaultId
 
             // 诱骗密码与真密码相同 → 真链永远先命中,诱骗链形同虚设,必须拒绝
-            require(!tryRealPassword(meta, decoyPassword)) { "诱骗密码不能与真密码相同" }
+            require(!tryRealPassword(meta, decoyPassword)) { "decoy password must differ from the real password" }
 
             // 真索引转密文(若当前为明文)
             if (!meta.indexEncrypted) {
@@ -438,9 +452,9 @@ class VaultManager(private val rootDir: File) {
 
     /** 移除诱骗库:销毁诱骗索引与包裹体。真库数据与密码完全不受影响;masterGate 保持开启(可手动关)。 */
     fun disableDecoy(unlocked: UnlockedVault) {
-        check(!unlocked.viaDecoy) { "移除诱骗需要真密码会话" }
+        check(!unlocked.viaDecoy) { "removing the decoy vault requires a real-password session" }
         val meta = unlocked.meta
-        check(meta.hasDecoy) { "诱骗库不存在" }
+        check(meta.hasDecoy) { "decoy vault does not exist" }
         val vaultId = unlocked.vaultId
         indexDecoyEncFile(vaultId).delete()
         synchronized(cacheLock) { indexCache.remove(decoyCacheKey(vaultId)) }
@@ -471,7 +485,7 @@ class VaultManager(private val rootDir: File) {
             } else if (unlocked.meta.hasDecoy) {
                 // meta 声称有诱骗但索引丢失 = 损坏;静默给空索引会掩盖数据丢失,
                 // 后续 saveIndex 还会把"空"写回去让所有 blob 变孤儿
-                throw IOException("诱骗索引文件缺失(库数据损坏)")
+                throw IOException("decoy index file missing (vault data corrupted)")
             } else {
                 VaultIndex()
             }
@@ -484,7 +498,7 @@ class VaultManager(private val rootDir: File) {
                     VaultIndex.fromJson(bytes.toString(Charsets.UTF_8))
                 }
                 plain.isFile -> VaultIndex.fromJson(plain.readText())
-                unlocked.meta.indexEncrypted -> throw IOException("加密索引文件缺失(库数据损坏)")
+                unlocked.meta.indexEncrypted -> throw IOException("encrypted index file missing (vault data corrupted)")
                 else -> VaultIndex()
             }
         }

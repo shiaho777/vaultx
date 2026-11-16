@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
@@ -44,6 +45,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.vault.MediaKind
 import kotlinx.coroutines.delay
 
@@ -65,6 +67,7 @@ fun SessionPlayerScreen(
             ?: MediaKind.OTHER
     }
     var playError by remember { mutableStateOf<String?>(null) }
+    val playErrorTemplate = stringResource(R.string.splay_play_error)
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -74,7 +77,7 @@ fun SessionPlayerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Text("文件已不存在", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.splay_file_missing), style = MaterialTheme.typography.bodyLarge)
                 }
             }
             kind == MediaKind.IMAGE -> {
@@ -93,7 +96,7 @@ fun SessionPlayerScreen(
                         ExoPlayer.Builder(context).build().apply {
                             addListener(object : Player.Listener {
                                 override fun onPlayerError(error: PlaybackException) {
-                                    playError = "播放失败:${error.errorCodeName}"
+                                    playError = playErrorTemplate.format(error.errorCodeName)
                                 }
                             })
                             setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(file!!)))
@@ -123,7 +126,7 @@ fun SessionPlayerScreen(
                         ExoPlayer.Builder(context).build().apply {
                             addListener(object : Player.Listener {
                                 override fun onPlayerError(error: PlaybackException) {
-                                    playError = "播放失败:${error.errorCodeName}"
+                                    playError = playErrorTemplate.format(error.errorCodeName)
                                 }
                             })
                             setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(file!!)))
@@ -156,7 +159,7 @@ fun SessionPlayerScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         TextButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
-                            Text(if (player.isPlaying) "暂停" else "播放")
+                            Text(if (player.isPlaying) stringResource(R.string.splay_pause) else stringResource(R.string.splay_play))
                         }
                     }
                 } else {
@@ -169,7 +172,7 @@ fun SessionPlayerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Text("该类型不支持预览", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.splay_unsupported), style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }
@@ -185,7 +188,7 @@ fun SessionPlayerScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.splay_back), tint = Color.White)
             }
             Spacer(Modifier.width(4.dp))
             Text(

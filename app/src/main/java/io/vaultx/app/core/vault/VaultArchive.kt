@@ -63,7 +63,7 @@ class VaultArchive(private val vaultManager: VaultManager) {
         var remaining = size
         while (remaining > 0) {
             val n = ins.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
-            if (n < 0) throw IOException("文件在导出中被截断")
+            if (n < 0) throw IOException("file truncated during export")
             out.write(buf, 0, n)
             remaining -= n
         }
@@ -80,20 +80,20 @@ class VaultArchive(private val vaultManager: VaultManager) {
                 val size = data.readLong()
                 data.skipBytes(32) // sha256
                 if (path == VaultMeta.FILE_NAME) {
-                    if (size < 0 || size > 1024 * 1024) throw ArchiveException("meta.vault 长度异常")
+                    if (size < 0 || size > 1024 * 1024) throw ArchiveException("invalid meta.vault size")
                     val bytes = ByteArray(size.toInt()).also { data.readFully(it) }
                     return try {
                         VaultMeta.fromJson(String(bytes, Charsets.UTF_8))
                     } catch (e: Exception) {
-                        throw ArchiveException("meta.vault 解析失败")
+                        throw ArchiveException("failed to parse meta.vault")
                     }
                 }
                 skipFully(data, size)
             }
         } catch (e: EOFException) {
-            throw ArchiveException("归档不完整(meta.vault 之前被截断)")
+            throw ArchiveException("incomplete archive (truncated before meta.vault)")
         }
-        throw ArchiveException("归档缺少 ${VaultMeta.FILE_NAME}")
+        throw ArchiveException("archive is missing ${VaultMeta.FILE_NAME}")
     }
 
     /**
@@ -123,32 +123,32 @@ class VaultArchive(private val vaultManager: VaultManager) {
                     size = data.readLong()
                     expectHash = ByteArray(32).also { data.readFully(it) }
                 } catch (e: EOFException) {
-                    throw ArchiveException("归档数据不完整(条目头被截断)")
+                    throw ArchiveException("incomplete archive data (entry header truncated)")
                 }
-                if (size < 0) throw ArchiveException("非法条目长度: $path")
+                if (size < 0) throw ArchiveException("invalid entry size: $path")
                 val target = File(staging, path)
                 target.parentFile?.mkdirs()
                 val actual = copyWithHash(data, target, size)
                 if (!actual.contentEquals(expectHash)) {
-                    throw ArchiveException("文件校验失败: $path(数据损坏或被篡改)")
+                    throw ArchiveException("checksum mismatch: $path (data corrupted or tampered)")
                 }
                 if (path == VaultMeta.FILE_NAME) {
                     meta = try {
                         VaultMeta.fromJson(target.readText())
                     } catch (e: Exception) {
-                        throw ArchiveException("meta.vault 解析失败")
+                        throw ArchiveException("failed to parse meta.vault")
                     }
                 }
                 done++
                 onProgress(done, count)
             }
             // 有效归档在最后一个条目后必须正好 EOF;多余字节 = 截断伪造/追加篡改
-            if (data.read() != -1) throw ArchiveException("归档尾部有多余数据(可能被篡改)")
-            val m = meta ?: throw ArchiveException("归档缺少 ${VaultMeta.FILE_NAME}")
+            if (data.read() != -1) throw ArchiveException("trailing garbage after archive entries (possibly tampered)")
+            val m = meta ?: throw ArchiveException("archive is missing ${VaultMeta.FILE_NAME}")
             if (!vaultManager.verifyPassword(m, password)) throw WrongPasswordException()
             val dest = vaultManager.vaultDir(m.vaultId)
-            if (dest.exists()) throw ArchiveException("同名库已存在,请先删除或改名")
-            if (!staging.renameTo(dest)) throw ArchiveException("归档就位失败")
+            if (dest.exists()) throw ArchiveException("a vault with the same name already exists; delete or rename it first")
+            if (!staging.renameTo(dest)) throw ArchiveException("failed to move imported archive into place")
             return m
         } finally {
             password.fill('\u0000')
@@ -160,26 +160,26 @@ class VaultArchive(private val vaultManager: VaultManager) {
         val magic = ByteArray(4)
         try {
             data.readFully(magic)
-            if (!magic.contentEquals(MAGIC)) throw ArchiveException("不是有效的 .fvault 归档")
+            if (!magic.contentEquals(MAGIC)) throw ArchiveException("not a valid .fvault archive")
             val version = data.readByte().toInt()
-            if (version != VERSION) throw ArchiveException("不支持的归档版本 $version")
+            if (version != VERSION) throw ArchiveException("unsupported archive version $version")
             val count = data.readInt()
-            if (count < 0 || count > 1_000_000) throw ArchiveException("归档条目数异常")
+            if (count < 0 || count > 1_000_000) throw ArchiveException("invalid archive entry count")
             return count
         } catch (e: EOFException) {
-            throw ArchiveException("归档被截断(头部不完整)")
+            throw ArchiveException("archive truncated (incomplete header)")
         } catch (e: IOException) {
-            throw ArchiveException("归档读取失败:${e.message}")
+            throw ArchiveException("failed to read archive: ${e.message}")
         }
     }
 
     /** 防 zip-slip:只允许相对路径段,拒绝空/绝对/../ 反斜杠。 */
     private fun sanitizePath(path: String): String {
         if (path.isBlank() || path.startsWith("/") || path.contains('\\')) {
-            throw ArchiveException("非法路径: $path")
+            throw ArchiveException("invalid path: $path")
         }
         if (path.split('/').any { it.isEmpty() || it == ".." }) {
-            throw ArchiveException("非法路径: $path")
+            throw ArchiveException("invalid path: $path")
         }
         return path
     }
@@ -204,7 +204,7 @@ class VaultArchive(private val vaultManager: VaultManager) {
             var remaining = size
             while (remaining > 0) {
                 val n = data.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
-                if (n < 0) throw ArchiveException("归档数据不完整(条目内容被截断)")
+                if (n < 0) throw ArchiveException("incomplete archive data (entry content truncated)")
                 out.write(buf, 0, n)
                 md.update(buf, 0, n)
                 remaining -= n
@@ -218,7 +218,7 @@ class VaultArchive(private val vaultManager: VaultManager) {
         while (remaining > 0) {
             val n = data.skip(remaining)
             if (n <= 0) {
-                if (data.read() < 0) throw ArchiveException("归档数据不完整")
+                if (data.read() < 0) throw ArchiveException("incomplete archive data")
                 remaining -= 1
             } else {
                 remaining -= n

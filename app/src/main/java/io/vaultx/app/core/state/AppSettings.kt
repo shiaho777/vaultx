@@ -59,11 +59,51 @@ class AppSettings(context: Context, scope: CoroutineScope) {
         store.edit { it[KEY_VIEW_MODE] = mode }
     }
 
+    /** 首次启动引导是否已完成。 */
+    val onboardingDone: StateFlow<Boolean> = store.data
+        .map { it[KEY_ONBOARDING_DONE] ?: false }
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
+    suspend fun setOnboardingDone() {
+        store.edit { it[KEY_ONBOARDING_DONE] = true }
+    }
+
+    /**
+     * 每库最近一次 .fvault 备份导出时间(epoch ms;0 = 从未备份)。
+     * JSON map 存单键,避免每库一个 DataStore 键的动态膨胀。
+     */
+    val backupTimes: StateFlow<Map<String, Long>> = store.data
+        .map { prefs -> decodeBackupTimes(prefs[KEY_BACKUP_TIMES]) }
+        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    suspend fun recordBackup(vaultId: String, atMillis: Long = System.currentTimeMillis()) {
+        store.edit { prefs ->
+            val cur = decodeBackupTimes(prefs[KEY_BACKUP_TIMES])
+            prefs[KEY_BACKUP_TIMES] = (cur + (vaultId to atMillis)).entries
+                .joinToString(";") { "${it.key}=${it.value}" }
+        }
+    }
+
     companion object {
         private val KEY_AUTO_LOCK_SECONDS = intPreferencesKey("auto_lock_seconds")
         private val KEY_FLAG_SECURE = booleanPreferencesKey("flag_secure")
         private val KEY_SORT_BY = stringPreferencesKey("sort_by")
         private val KEY_VIEW_MODE = stringPreferencesKey("view_mode")
+        private val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+        private val KEY_BACKUP_TIMES = stringPreferencesKey("backup_times")
+
+        /** "vaultId=epochMs;vaultId=epochMs" 解码;vaultId 是 UUID,不含分隔符。坏数据回落空表。 */
+        private fun decodeBackupTimes(raw: String?): Map<String, Long> {
+            if (raw.isNullOrBlank()) return emptyMap()
+            return raw.split(';').mapNotNull { part ->
+                val i = part.lastIndexOf('=')
+                if (i <= 0) null
+                else part.substring(i + 1).toLongOrNull()?.let { part.substring(0, i) to it }
+            }.toMap()
+        }
+
+        /** 备份提醒阈值:超过 30 天未备份(或从未备份)提示。 */
+        const val BACKUP_REMINDER_DAYS = 30L
 
         const val DEFAULT_AUTO_LOCK_SECONDS = 60
         val DEFAULT_FLAG_SECURE = !BuildConfig.DEBUG

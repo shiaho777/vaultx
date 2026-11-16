@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Top bar -->
+    <string name="vhome_navigate_up">Up one level</string>
+    <string name="vhome_search_placeholder">Search file names</string>
+    <string name="vhome_default_title">Vault</string>
+    <string name="vhome_root">Root</string>
+    <string name="vhome_search">Search</string>
+    <string name="vhome_view_list">List view</string>
+    <string name="vhome_view_grid">Grid view</string>
+    <string name="vhome_sort">Sort</string>
+    <string name="vhome_sort_toggle_direction">Tap again to reverse direction</string>
+    <string name="vhome_lock_now">Lock now</string>
+    <string name="vhome_vault_settings">Vault settings</string>
+
+    <!-- Import menu -->
+    <string name="vhome_import">Import</string>
+    <string name="vhome_import_files">Import files</string>
+    <string name="vhome_import_folder">Import folder</string>
+    <string name="vhome_new_folder">New folder</string>
+    <string name="vhome_create">Create</string>
+
+    <!-- Transfer / undo / empty states -->
+    <string name="vhome_cancel">Cancel</string>
+    <string name="vhome_deleted_count">Deleted %1$d items</string>
+    <string name="vhome_undo">Undo</string>
+    <string name="vhome_empty_no_match_title">No matching files</string>
+    <string name="vhome_empty_no_match_subtitle">Try a different keyword</string>
+    <string name="vhome_empty_title">Nothing here yet</string>
+    <string name="vhome_empty_subtitle">Tap + at the bottom right to import files or folders</string>
+    <string name="vhome_located_in">In: %1$s</string>
+
+    <!-- Drag shadow / selection toolbar -->
+    <string name="vhome_drag_multiple">%1$s and %2$d items</string>
+    <string name="vhome_select_all">Select all</string>
+    <string name="vhome_move">Move</string>
+    <string name="vhome_export">Export</string>
+    <string name="vhome_delete">Delete</string>
+    <string name="vhome_clear_selection">Clear selection</string>
+
+    <!-- Entry overflow menu -->
+    <string name="vhome_preview">Preview</string>
+    <string name="vhome_rename">Rename</string>
+    <string name="vhome_duplicate">Make a copy</string>
+    <string name="vhome_encrypted_export">Encrypted export (.vlt)</string>
+    <string name="vhome_import_files_here">Import files here…</string>
+    <string name="vhome_move_to_ellipsis">Move to…</string>
+    <string name="vhome_properties">Properties</string>
+
+    <!-- Dialog commons -->
+    <string name="vhome_ok">OK</string>
+    <string name="vhome_close">Close</string>
+
+    <!-- Move dialog -->
+    <string name="vhome_move_to">Move to</string>
+    <string name="vhome_root_current">Root (current)</string>
+    <string name="vhome_path_current">%1$s (current)</string>
+
+    <!-- Properties dialog -->
+    <string name="vhome_info_type">Type</string>
+    <string name="vhome_kind_image">Image</string>
+    <string name="vhome_kind_video">Video</string>
+    <string name="vhome_kind_audio">Audio</string>
+    <string name="vhome_kind_folder">Folder</string>
+    <string name="vhome_kind_file">File</string>
+    <string name="vhome_info_contains">Contains</string>
+    <string name="vhome_info_contains_value">%1$d items (%2$d descendants in total)</string>
+    <string name="vhome_info_total_size">Total size</string>
+    <string name="vhome_info_size">Size</string>
+    <string name="vhome_info_mime">MIME</string>
+    <string name="vhome_info_location">Location</string>
+    <string name="vhome_info_created">Created</string>
+    <string name="vhome_info_modified">Modified</string>
+
+    <!-- .vlt import dialog -->
+    <string name="vhome_vlt_import_title">Decrypt and import “%1$s”</string>
+    <string name="vhome_vlt_import_message">This is a .vlt portable encrypted file. Enter its one-time password; once decrypted it will be stored directly in this vault.</string>
+    <string name="vhome_vlt_import_password_hint">Password set when exporting</string>
+    <string name="vhome_password_min_length">At least 4 characters</string>
+    <string name="vhome_vlt_import_failed">Wrong password or corrupted file</string>
+    <string name="vhome_vlt_import_confirm">Decrypt and import</string>
+    <string name="vhome_skip">Skip</string>
+
+    <!-- .vlt export dialog -->
+    <string name="vhome_vlt_export_title">Encrypted export of “%1$s”</string>
+    <string name="vhome_vlt_export_message">Set a separate password for this .vlt file (independent of the vault password); anyone with this password can open it without the vault.</string>
+    <string name="vhome_vlt_export_password_hint">Export password</string>
+    <string name="vhome_vlt_export_password_confirm_hint">Confirm password</string>
+    <string name="vhome_password_mismatch">Passwords do not match</string>
+    <string name="vhome_choose_save_location">Choose save location</string>
+
+    <!-- Delete confirmation -->
+    <string name="vhome_delete_confirm_title">Delete %1$d items?</string>
+    <string name="vhome_delete_confirm_cascade">Everything inside the folders will be deleted as well. You have an 8-second undo window after deletion.</string>
+    <string name="vhome_delete_confirm_simple">You have an 8-second undo window after deletion and can restore from the bottom bar.</string>
+
+    <!-- Entry rows / cells -->
+    <string name="vhome_item_count">%1$d items</string>
+</resources>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SessionHomeScreen -->
+    <string name="sess_title">临时空间</string>
+    <string name="sess_exit">退出</string>
+    <string name="sess_import">导入</string>
+    <string name="sess_import_files">导入文件</string>
+    <string name="sess_import_folder_flat">导入文件夹(拍平)</string>
+    <string name="sess_burn_notice">退出或重启后内容消失 · 点 + 导入文件或 .vlt 密文</string>
+    <string name="sess_empty_title">临时空间是空的</string>
+    <string name="sess_empty_subtitle">导入文件或 .vlt 便携密文开始</string>
+    <string name="sess_preview">预览</string>
+    <string name="sess_text_preview">文本预览</string>
+    <string name="sess_rename">重命名</string>
+    <string name="sess_export_vlt">导出为 .vlt 密文</string>
+    <string name="sess_export_plain">导出明文</string>
+    <string name="sess_delete">删除</string>
+    <string name="sess_close">关闭</string>
+    <string name="sess_open_vlt_title">打开 .vlt</string>
+    <string name="sess_vlt_password_prompt">输入「%1$s」的密码</string>
+    <string name="sess_this_file">该文件</string>
+    <string name="sess_password">密码</string>
+    <string name="sess_confirm_password">确认密码</string>
+    <string name="sess_vlt_queue_remaining">还有 %1$d 个 .vlt 待处理</string>
+    <string name="sess_vlt_open_error">密码错误或文件损坏</string>
+    <string name="sess_open">打开</string>
+    <string name="sess_skip">跳过</string>
+    <string name="sess_export_vlt_title">导出为 .vlt</string>
+    <string name="sess_export_vlt_hint">设一个一次性密码;接收方用它解密,无需此应用账号</string>
+    <string name="sess_password_empty">密码不能为空</string>
+    <string name="sess_password_mismatch">两次输入不一致</string>
+    <string name="sess_choose_save_location">选择保存位置</string>
+    <string name="sess_cancel">取消</string>
+    <string name="sess_ok">确定</string>
+    <string name="sess_delete_title">删除「%1$s」?</string>
+    <string name="sess_delete_text">临时文件立即销毁。</string>
+    <string name="sess_exit_title">退出临时空间?</string>
+    <string name="sess_exit_text">空间内 %1$d 个文件将永久销毁。</string>
+    <string name="sess_destroy_and_exit">销毁并退出</string>
+
+    <!-- SessionPlayerScreen -->
+    <string name="splay_file_missing">文件已不存在</string>
+    <string name="splay_play_error">播放失败:%1$s</string>
+    <string name="splay_pause">暂停</string>
+    <string name="splay_play">播放</string>
+    <string name="splay_unsupported">该类型不支持预览</string>
+    <string name="splay_back">返回</string>
+
+    <!-- Widgets -->
+    <string name="widget_hide_password">隐藏密码</string>
+    <string name="widget_show_password">显示密码</string>
+    <string name="widget_confirm">确认</string>
+    <string name="widget_cancel">取消</string>
+</resources>

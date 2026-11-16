@@ -30,11 +30,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import io.vaultx.app.R
 
 /** 密码输入框:可视性切换 + 明文不可被自动填充推荐。 */
 @Composable
@@ -64,7 +66,7 @@ fun PasswordField(
             IconButton(onClick = { visible = !visible }) {
                 Icon(
                     if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                    contentDescription = if (visible) "隐藏密码" else "显示密码",
+                    contentDescription = if (visible) stringResource(R.string.widget_hide_password) else stringResource(R.string.widget_show_password),
                 )
             }
         },
@@ -76,7 +78,7 @@ fun PasswordField(
 fun ConfirmDialog(
     title: String,
     text: String,
-    confirmText: String = "确认",
+    confirmText: String = stringResource(R.string.widget_confirm),
     danger: Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -90,7 +92,7 @@ fun ConfirmDialog(
                 Text(confirmText, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.widget_cancel)) } },
     )
 }
 
@@ -123,20 +125,30 @@ fun EmptyState(
     }
 }
 
-/** 顶部传输进度条(done/total)。 */
+/** 顶部传输进度条(done/total);[fileBytes] > 0 时附显当前文件已传输体量(大文件不再无反馈)。 */
 @Composable
-fun TransferProgressBar(done: Int, total: Int, label: String, modifier: Modifier = Modifier) {
+fun TransferProgressBar(done: Int, total: Int, label: String, modifier: Modifier = Modifier, fileBytes: Long = 0) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
             if (total <= 0) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             } else {
-                Text("$done / $total", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    if (fileBytes > 0) "$done / $total · ${formatBytes(fileBytes)}" else "$done / $total",
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
         }
         Spacer(Modifier.height(6.dp))

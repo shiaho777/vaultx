@@ -36,6 +36,8 @@ data class VaultEntry(
 data class VaultIndex(
     val entries: MutableList<VaultEntry> = mutableListOf(),
     val updatedAt: Long = 0,
+    /** 格式版本号:旧索引无此字段 → 默认 1;高于本端支持必须拒绝(见 [fromJson])。 */
+    val formatVersion: Int = FORMAT_VERSION,
 ) {
 
     fun find(id: String): VaultEntry? = entries.firstOrNull { it.id == id }
@@ -94,7 +96,17 @@ data class VaultIndex(
     fun toJson(): String = json.encodeToString(serializer(), this)
 
     companion object {
-        private val json = Json { ignoreUnknownKeys = true }
-        fun fromJson(text: String): VaultIndex = json.decodeFromString(serializer(), text)
+        /** 当前索引格式版本。带默认值的字段新增不升版本;语义变更才递增。 */
+        const val FORMAT_VERSION = 1
+
+        // encodeDefaults:formatVersion 等默认值字段必须落盘,否则版本锚点形同虚设
+        private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        fun fromJson(text: String): VaultIndex {
+            val index = json.decodeFromString(serializer(), text)
+            require(index.formatVersion <= FORMAT_VERSION) {
+                "unsupported index format version ${index.formatVersion} (max $FORMAT_VERSION); upgrade the app"
+            }
+            return index
+        }
     }
 }

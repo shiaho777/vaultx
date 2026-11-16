@@ -28,8 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.vaultx.app.R
 import io.vaultx.app.ui.components.pressScale
 
 /** 启动页:选模式——持久加密保险库,或即用即焚的临时空间。 */
@@ -39,7 +41,14 @@ fun ModeSelectScreen(
     onLockedMode: () -> Unit,
     onSessionMode: () -> Unit,
     onSettings: () -> Unit,
+    /** 首次启动引导:未完成时覆盖在模式选择之上;完成/跳过经 [onOnboardingDone] 持久化。 */
+    showOnboarding: Boolean = false,
+    onOnboardingDone: () -> Unit = {},
 ) {
+    if (showOnboarding) {
+        OnboardingScreen(onDone = onOnboardingDone)
+        return
+    }
     Scaffold { padding ->
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(padding)) {
             Column(
@@ -60,22 +69,22 @@ fun ModeSelectScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "本地加密文件保险库 · 不联网 · 不留后门",
+                    stringResource(R.string.mode_tagline),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(40.dp))
 
                 ModeCard(
-                    title = "保险库",
-                    subtitle = "持久加密存储 · 每库独立密码 · 支持文件夹/诱骗库/生物识别",
+                    title = stringResource(R.string.mode_vault_title),
+                    subtitle = stringResource(R.string.mode_vault_subtitle),
                     icon = Icons.Filled.Lock,
                     onClick = onLockedMode,
                 )
                 Spacer(Modifier.height(16.dp))
                 ModeCard(
-                    title = "临时空间",
-                    subtitle = "即焚模式 · 查看/转换 .vlt 便携密文 · 退出后内容全部消失",
+                    title = stringResource(R.string.mode_session_title),
+                    subtitle = stringResource(R.string.mode_session_subtitle),
                     icon = Icons.Filled.FlashOn,
                     onClick = onSessionMode,
                 )
@@ -83,7 +92,7 @@ fun ModeSelectScreen(
 
             // 右上角设置入口
             IconButton(onClick = onSettings, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-                Icon(Icons.Filled.Settings, contentDescription = "设置")
+                Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.mode_settings))
             }
         }
     }

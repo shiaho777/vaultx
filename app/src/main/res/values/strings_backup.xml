@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="backup_due_banner">No backup for over %1$d days. Export a .fvault archive to keep your files safe.</string>
+    <string name="backup_due_action">Back up</string>
+    <string name="backup_due_dismiss">Dismiss</string>
+    <string name="backup_row_title">Backup status</string>
+    <string name="backup_row_never">Never backed up</string>
+    <string name="backup_row_last">Last backup: %1$s</string>
+    <string name="backup_row_hint">Export a .fvault archive from the vault list (long-press the vault). The archive stays encrypted.</string>
+</resources>

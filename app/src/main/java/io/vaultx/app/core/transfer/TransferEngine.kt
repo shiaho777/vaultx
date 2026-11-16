@@ -82,16 +82,35 @@ class TransferEngine(private val vaultManager: VaultManager) {
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
         onCheckpoint: (VaultIndex) -> Unit = {},
         onFileStart: (name: String) -> Unit = {},
+        /** 当前文件已拷贝字节数(50ms 节流;收尾必达)。大文件进度不再长期停在 0/1。 */
+        onBytes: (bytes: Long) -> Unit = {},
     ): ImportResult {
         check(activeFlag.compareAndSet(false, true)) { "transfer already active" }
         val total = sources.sumOf { countFiles(it) }
         val throttle = Throttle()
+        val byteThrottle = Throttle()
+        // 名字表按目录预建:判重/重名消解不再逐文件全表扫描(O(n²) → O(n))。
+        // 本次导入是索引唯一写者(调用方全程持索引锁),addEntry 后同步登记即始终一致。
+        val siblings = HashMap<String?, MutableList<VaultEntry>>()
+        index.entries.forEach { siblings.getOrPut(it.parentId) { mutableListOf() }.add(it) }
+        fun addTracked(
+            name: String,
+            kind: MediaKind,
+            blobId: String? = null,
+            sizeBytes: Long = 0,
+            parentId: String?,
+            mimeType: String? = null,
+        ): VaultEntry {
+            val e = index.addEntry(name, kind, blobId, sizeBytes, parentId, mimeType)
+            siblings.getOrPut(parentId) { mutableListOf() }.add(e)
+            return e
+        }
         var done = 0
         var imported = 0
         var lastCheckpoint = System.nanoTime()
         try {
             for (src in sources) {
-                imported += importOne(unlocked, src, parentId, index, isCancelled, onFileStart) {
+                imported += importOne(unlocked, src, parentId, siblings, isCancelled, onFileStart, ::addTracked, byteThrottle, onBytes) {
                     done++
                     throttle.emit(done, total, onProgress)
                     val now = System.nanoTime()
@@ -123,22 +142,22 @@ class TransferEngine(private val vaultManager: VaultManager) {
         unlocked: UnlockedVault,
         src: ImportSource,
         parentId: String?,
-        index: VaultIndex,
+        siblings: MutableMap<String?, MutableList<VaultEntry>>,
         isCancelled: () -> Boolean,
         onFileStart: (String) -> Unit,
+        addTracked: (name: String, kind: MediaKind, blobId: String?, sizeBytes: Long, parentId: String?, mimeType: String?) -> VaultEntry,
+        byteThrottle: Throttle,
+        onBytes: (Long) -> Unit,
         onFileDone: () -> Unit,
     ): Int {
         if (isCancelled()) throw TransferCancelledException()
+        val brothers = siblings.getOrPut(parentId) { mutableListOf() }
         if (src.isDirectory) {
-            val folder = index.addEntry(
-                name = uniqueName(src.name, index, parentId),
-                kind = MediaKind.FOLDER,
-                parentId = parentId,
-            )
+            val folder = addTracked(uniqueIn(src.name, brothers), MediaKind.FOLDER, null, 0, parentId, null)
             val children = src.children()
             var n = 0
             for (child in children) {
-                n += importOne(unlocked, child, folder.id, index, isCancelled, onFileStart, onFileDone)
+                n += importOne(unlocked, child, folder.id, siblings, isCancelled, onFileStart, addTracked, byteThrottle, onBytes, onFileDone)
             }
             // 空目录在 countFiles 里占 1 份进度,这里补上;非空目录进度全部由子项贡献
             if (children.isEmpty()) onFileDone()
@@ -146,7 +165,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
         }
         onFileStart(src.name)
         // 同名同大小 = 已存在的重复文件:跳过,不产 "(2)" 副本
-        val isDup = src.sizeBytes > 0 && index.childrenOf(parentId).any {
+        val isDup = src.sizeBytes > 0 && brothers.any {
             !it.isFolder && it.name == src.name && it.sizeBytes == src.sizeBytes
         }
         if (isDup) {
@@ -155,10 +174,17 @@ class TransferEngine(private val vaultManager: VaultManager) {
         }
         val blobId = vaultManager.newBlobId()
         val sink = vaultManager.prepareBlobSink(unlocked.vaultId, blobId)
+        onBytes(0)
+        var copied = 0L
         try {
             sink.outputStream().use { raw ->
                 unlocked.crypto.encryptingStream(raw, VaultCrypto.blobAd(unlocked.vaultId, blobId)).use { enc ->
-                    src.open().use { ins -> copyChecked(ins, enc, isCancelled) }
+                    src.open().use { ins ->
+                        copyChecked(ins, enc, isCancelled) { n ->
+                            copied += n
+                            byteThrottle.emitValue(copied, onBytes)
+                        }
+                    }
                 }
             }
         } catch (e: Throwable) {
@@ -166,14 +192,15 @@ class TransferEngine(private val vaultManager: VaultManager) {
             vaultManager.deleteBlob(unlocked.vaultId, blobId)
             throw e
         }
-        index.addEntry(
-            name = uniqueName(src.name, index, parentId),
-            kind = kindOf(src.name, src.mimeType),
-            blobId = blobId,
+        onBytes(copied) // 收尾必达:小文件不足节流间隔也要报出最终字节数
+        addTracked(
+            uniqueIn(src.name, brothers),
+            kindOf(src.name, src.mimeType),
+            blobId,
             // 索引记明文长度(导出显示/播放器 seek 用);源报不出大小时回落密文长度
-            sizeBytes = if (src.sizeBytes >= 0) src.sizeBytes else vaultManager.blobSize(unlocked.vaultId, blobId),
-            parentId = parentId,
-            mimeType = src.mimeType,
+            if (src.sizeBytes >= 0) src.sizeBytes else vaultManager.blobSize(unlocked.vaultId, blobId),
+            parentId,
+            src.mimeType,
         )
         onFileDone()
         return 1
@@ -181,13 +208,21 @@ class TransferEngine(private val vaultManager: VaultManager) {
 
     /** 同目录内重名消解:"a.jpg" → "a (2).jpg" → "a (3).jpg"。[excludeId] 排除条目自身(改名/移动时)。 */
     internal fun uniqueName(name: String, index: VaultIndex, parentId: String?, excludeId: String? = null): String {
-        // 外部名(SAF 显示名/用户输入)去路径分隔与控制字符——名字会进索引进而拼导出 relPath,
-        // 不拦住 "../" 之类会破坏目录结构语义(甚至制造同名幻影)
-        val clean = sanitizeName(name)
         val taken = index.childrenOf(parentId).asSequence()
             .filter { it.id != excludeId }
             .map { it.name }
             .toHashSet()
+        return resolveUnique(name, taken)
+    }
+
+    /** 导入热路径版:名字集来自预建的目录兄弟表,免全表扫描。 */
+    private fun uniqueIn(name: String, brothers: List<VaultEntry>): String =
+        resolveUnique(name, brothers.mapTo(HashSet()) { it.name })
+
+    private fun resolveUnique(name: String, taken: Set<String>): String {
+        // 外部名(SAF 显示名/用户输入)去路径分隔与控制字符——名字会进索引进而拼导出 relPath,
+        // 不拦住 "../" 之类会破坏目录结构语义(甚至制造同名幻影)
+        val clean = sanitizeName(name)
         if (clean !in taken) return clean
         val dot = clean.lastIndexOf('.')
         val stem = if (dot > 0) clean.substring(0, dot) else clean
@@ -219,13 +254,19 @@ class TransferEngine(private val vaultManager: VaultManager) {
         }
     }
 
-    private fun copyChecked(ins: InputStream, out: OutputStream, isCancelled: () -> Boolean) {
+    private fun copyChecked(
+        ins: InputStream,
+        out: OutputStream,
+        isCancelled: () -> Boolean,
+        onChunk: (Int) -> Unit = {},
+    ) {
         val buf = ByteArray(64 * 1024)
         while (true) {
             if (isCancelled()) throw TransferCancelledException()
             val n = ins.read(buf)
             if (n < 0) return
             out.write(buf, 0, n)
+            onChunk(n)
         }
     }
 
@@ -244,10 +285,13 @@ class TransferEngine(private val vaultManager: VaultManager) {
         isCancelled: () -> Boolean = { false },
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
         onFileStart: (name: String) -> Unit = {},
+        /** 当前文件已导出字节数(50ms 节流;收尾必达)。 */
+        onBytes: (bytes: Long) -> Unit = {},
     ): ExportResult {
         check(activeFlag.compareAndSet(false, true)) { "transfer already active" }
         val total = entries.size
         val throttle = Throttle()
+        val byteThrottle = Throttle()
         var done = 0
         try {
             var exported = 0
@@ -280,9 +324,17 @@ class TransferEngine(private val vaultManager: VaultManager) {
                     continue
                 }
                 try {
+                    onBytes(0)
+                    var copied = 0L
                     vaultManager.openBlobStream(unlocked, blobId).use { dec ->
-                        sink.output.use { out -> copyChecked(dec, out, isCancelled) }
+                        sink.output.use { out ->
+                            copyChecked(dec, out, isCancelled) { n ->
+                                copied += n
+                                byteThrottle.emitValue(copied, onBytes)
+                            }
+                        }
                     }
+                    onBytes(copied)
                     sink.commit()
                     exported++
                 } catch (e: TransferCancelledException) {
@@ -316,7 +368,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
         return parts.joinToString("/")
     }
 
-    /** 50ms 节流:进度回调不至于每个文件都推一次 StateFlow。 */
+    /** 50ms 节流:进度回调不至于每个文件/分块都推一次 StateFlow。 */
     private class Throttle(private val minIntervalNs: Long = 50_000_000L) {
         private var last = 0L
         fun emit(done: Int, total: Int, sink: (Int, Int) -> Unit) {
@@ -324,6 +376,13 @@ class TransferEngine(private val vaultManager: VaultManager) {
             if (now - last >= minIntervalNs) {
                 last = now
                 sink(done, total)
+            }
+        }
+        fun emitValue(value: Long, sink: (Long) -> Unit) {
+            val now = System.nanoTime()
+            if (now - last >= minIntervalNs) {
+                last = now
+                sink(value)
             }
         }
     }

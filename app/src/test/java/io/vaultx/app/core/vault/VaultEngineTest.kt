@@ -74,6 +74,60 @@ class VaultEngineTest {
     }
 
     @Test
+    fun formatVersionWrittenAndLegacyFilesReadable() {
+        val meta = manager.createVault("v", pw("pw1234"), kdfParams = KdfParams.TEST)
+        // 新写出的 meta/索引都带当前版本号
+        assertEquals(VaultMeta.FORMAT_VERSION, manager.metaOf(meta.vaultId).formatVersion)
+        val u = manager.unlock(meta.vaultId, pw("pw1234"))
+        assertEquals(VaultIndex.FORMAT_VERSION, manager.loadIndex(u).formatVersion)
+        // 旧格式(无版本字段)必须仍可读:去掉版本字段模拟历史文件
+        val legacyMetaJson = manager.metaOf(meta.vaultId).toJson()
+            .replace(Regex(",?\"formatVersion\":\\d+"), "")
+        assertEquals(1, VaultMeta.fromJson(legacyMetaJson).formatVersion)
+        val legacyIndexJson = VaultIndex().apply { addEntry("a", MediaKind.OTHER) }.toJson()
+            .replace(Regex(",?\"formatVersion\":\\d+"), "")
+        assertEquals(1, VaultIndex.fromJson(legacyIndexJson).entries.size)
+    }
+
+    @Test
+    fun futureFormatVersionRejected() {
+        val meta = manager.createVault("v", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val futureMeta = manager.metaOf(meta.vaultId).toJson()
+            .replace("\"formatVersion\":1", "\"formatVersion\":99")
+        try {
+            VaultMeta.fromJson(futureMeta)
+            fail("expected rejection of future format")
+        } catch (_: IllegalArgumentException) {
+        }
+        val futureIndex = VaultIndex().toJson().replace("\"formatVersion\":1", "\"formatVersion\":99")
+        try {
+            VaultIndex.fromJson(futureIndex)
+            fail("expected rejection of future format")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
+    fun createVaultLeavesNoStagingDir() {
+        val meta = manager.createVault("s", pw("pw1234"), kdfParams = KdfParams.TEST)
+        // 建库成功后暂存壳必须已改名消失,正式目录带 meta
+        assertTrue(manager.vaultDir(meta.vaultId).isDirectory)
+        val vaults = File(tmp.root, VaultManager.VAULTS_DIR)
+        assertTrue(vaults.listFiles()!!.none { it.name.endsWith(".building") })
+    }
+
+    @Test
+    fun listVaultsSweepsCrashedStagingButKeepsBuildingVaultOutOfSight() {
+        val vaults = File(tmp.root, VaultManager.VAULTS_DIR)
+        // 模拟建库中途进程死亡留下的隐藏暂存壳
+        val crashed = File(vaults, ".dead-uuid.building").apply { mkdirs() }
+        File(crashed, "blobs").mkdirs()
+        val list = manager.listVaults()
+        assertTrue(list.isEmpty())
+        assertFalse(crashed.exists())
+    }
+
+    @Test
     fun indexPlainAndEncryptedForms() {
         // masterGate off → 明文索引,免密可读条目数
         val meta1 = manager.createVault("plain", pw("pw1234"), masterGate = false, kdfParams = KdfParams.TEST)
@@ -371,7 +425,7 @@ class VaultEngineTest {
             archive.importVault(ByteArrayInputStream(bytes), pw("pw1234"))
             fail("trailing garbage must be rejected")
         } catch (e: ArchiveException) {
-            assertTrue(e.message!!.contains("多余"))
+            assertTrue(e.message!!.contains("trailing garbage"))
         }
         assertFalse(manager.vaultExists(meta.vaultId))
     }

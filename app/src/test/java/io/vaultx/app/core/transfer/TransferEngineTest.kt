@@ -355,6 +355,51 @@ class TransferEngineTest {
     }
 
     @Test
+    fun importReportsByteProgress() {
+        val index = VaultIndex()
+        val data = ByteArray(300_000) { 3 }
+        val bytesSeen = mutableListOf<Long>()
+        engine.import(
+            unlocked, listOf(MemFile("big.bin", data)), null, index,
+            onBytes = { bytesSeen += it },
+        )
+        // 起始 0 + 收尾必达最终字节数
+        assertEquals(0L, bytesSeen.first())
+        assertEquals(data.size.toLong(), bytesSeen.last())
+    }
+
+    @Test
+    fun exportReportsByteProgress() {
+        val index = VaultIndex()
+        val data = ByteArray(200_000) { 5 }
+        engine.import(unlocked, listOf(MemFile("big.bin", data)), null, index)
+        val bytesSeen = mutableListOf<Long>()
+        engine.exportEntries(
+            unlocked, index.entries.toList(), index, MemSinkFactory(),
+            onBytes = { bytesSeen += it },
+        )
+        assertEquals(0L, bytesSeen.first())
+        assertEquals(data.size.toLong(), bytesSeen.last())
+    }
+
+    @Test
+    fun importManyFilesNameResolutionStaysCorrect() {
+        val index = VaultIndex()
+        // 预建名字表路径:同目录大量同名不同大小文件,消解序号必须连续无重复
+        val sources = (1..60).map { n -> MemFile("dup.jpg", ByteArray(n)) }
+        val r = engine.import(unlocked, sources, null, index)
+        assertEquals(60, r.imported)
+        val names = index.entries.map { it.name }
+        assertEquals(60, names.toSet().size)
+        assertTrue("dup.jpg" in names && "dup (60).jpg" in names)
+        // 目录内嵌套同名也走各自目录的名字表
+        val dir = MemDir("d", listOf(MemFile("dup.jpg", ByteArray(1)), MemFile("dup.jpg", ByteArray(2) { 2 })))
+        engine.import(unlocked, listOf(dir), null, index)
+        val folder = index.entries.first { it.isFolder }
+        assertEquals(listOf("dup.jpg", "dup (2).jpg"), index.childrenOf(folder.id).map { it.name })
+    }
+
+    @Test
     fun onFileStartReportsEachImportedName() {
         val index = VaultIndex()
         val started = mutableListOf<String>()

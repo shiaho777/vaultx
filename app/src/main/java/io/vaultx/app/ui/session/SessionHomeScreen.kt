@@ -57,9 +57,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.session.SessionManager.SessionFile
 import io.vaultx.app.core.vault.MediaKind
 import io.vaultx.app.ui.components.ConfirmDialog
@@ -137,10 +139,10 @@ fun SessionHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("临时空间") },
+                title = { Text(stringResource(R.string.sess_title)) },
                 navigationIcon = {
                     IconButton(onClick = { exitConfirm = true }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "退出")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.sess_exit))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -151,21 +153,21 @@ fun SessionHomeScreen(
         floatingActionButton = {
             var importMenu by remember { mutableStateOf(false) }
             FloatingActionButton(onClick = { importMenu = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "导入")
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.sess_import))
             }
             androidx.compose.material3.DropdownMenu(
                 expanded = importMenu,
                 onDismissRequest = { importMenu = false },
             ) {
                 androidx.compose.material3.DropdownMenuItem(
-                    text = { Text("导入文件") },
+                    text = { Text(stringResource(R.string.sess_import_files)) },
                     onClick = {
                         importMenu = false
                         importLauncher.launch(arrayOf("*/*"))
                     },
                 )
                 androidx.compose.material3.DropdownMenuItem(
-                    text = { Text("导入文件夹(拍平)") },
+                    text = { Text(stringResource(R.string.sess_import_folder_flat)) },
                     onClick = {
                         importMenu = false
                         importFolderLauncher.launch(null)
@@ -184,7 +186,7 @@ fun SessionHomeScreen(
                     Icon(Icons.Filled.Warning, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "退出或重启后内容消失 · 点 + 导入文件或 .vlt 密文",
+                        stringResource(R.string.sess_burn_notice),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
@@ -202,7 +204,7 @@ fun SessionHomeScreen(
                 )
             }
             if (files.isEmpty()) {
-                EmptyState("临时空间是空的", "导入文件或 .vlt 便携密文开始", Modifier.weight(1f))
+                EmptyState(stringResource(R.string.sess_empty_title), stringResource(R.string.sess_empty_subtitle), Modifier.weight(1f))
             } else {
                 LazyColumn(Modifier.weight(1f)) {
                     items(files, key = { it.storedName }) { f ->
@@ -228,22 +230,22 @@ fun SessionHomeScreen(
     menuFor?.let { f ->
         DropdownMenu(expanded = true, onDismissRequest = { menuFor = null }) {
             if (f.kind == MediaKind.IMAGE || f.kind == MediaKind.VIDEO || f.kind == MediaKind.AUDIO) {
-                DropdownMenuItem(text = { Text("预览") }, onClick = { onPreview(f.storedName); menuFor = null })
+                DropdownMenuItem(text = { Text(stringResource(R.string.sess_preview)) }, onClick = { onPreview(f.storedName); menuFor = null })
             }
             if (isTextFileName(f.storedName, f.sizeBytes)) {
-                DropdownMenuItem(text = { Text("文本预览") }, onClick = { textFor = f; menuFor = null })
+                DropdownMenuItem(text = { Text(stringResource(R.string.sess_text_preview)) }, onClick = { textFor = f; menuFor = null })
             }
-            DropdownMenuItem(text = { Text("重命名") }, onClick = { renameFor = f; menuFor = null })
+            DropdownMenuItem(text = { Text(stringResource(R.string.sess_rename)) }, onClick = { renameFor = f; menuFor = null })
             DropdownMenuItem(
-                text = { Text("导出为 .vlt 密文") },
+                text = { Text(stringResource(R.string.sess_export_vlt)) },
                 onClick = { vltExportFor = f; menuFor = null },
             )
             DropdownMenuItem(
-                text = { Text("导出明文") },
+                text = { Text(stringResource(R.string.sess_export_plain)) },
                 onClick = { plainExportFor = f; menuFor = null },
             )
             DropdownMenuItem(
-                text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                text = { Text(stringResource(R.string.sess_delete), color = MaterialTheme.colorScheme.error) },
                 onClick = { deleteFor = f; menuFor = null },
             )
         }
@@ -279,7 +281,7 @@ fun SessionHomeScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { textFor = null }) { Text("关闭") } },
+            confirmButton = { TextButton(onClick = { textFor = null }) { Text(stringResource(R.string.sess_close)) } },
         )
     }
 
@@ -287,18 +289,20 @@ fun SessionHomeScreen(
     vltQueue.firstOrNull()?.let { uri ->
         var pw by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
+        val openError = stringResource(R.string.sess_vlt_open_error)
+        val thisFile = stringResource(R.string.sess_this_file)
         AlertDialog(
             onDismissRequest = { vltQueue = vltQueue.drop(1) },
-            title = { Text("打开 .vlt") },
+            title = { Text(stringResource(R.string.sess_open_vlt_title)) },
             text = {
                 Column(Modifier.imePadding()) {
-                    Text("输入「${uri.lastPathSegment?.substringAfterLast('/') ?: "该文件"}」的密码")
+                    Text(stringResource(R.string.sess_vlt_password_prompt, uri.lastPathSegment?.substringAfterLast('/') ?: thisFile))
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(pw, { pw = it; err = null }, "密码", isError = err != null, supportingText = err)
+                    PasswordField(pw, { pw = it; err = null }, stringResource(R.string.sess_password), isError = err != null, supportingText = err)
                     if (vltQueue.size > 1) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "还有 ${vltQueue.size - 1} 个 .vlt 待处理",
+                            stringResource(R.string.sess_vlt_queue_remaining, vltQueue.size - 1),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -308,11 +312,11 @@ fun SessionHomeScreen(
             confirmButton = {
                 TextButton(onClick = {
                     vm.importVlt(container.safTransfer.fileSource(uri), pw.toCharArray()) { ok ->
-                        if (ok) vltQueue = vltQueue.drop(1) else err = "密码错误或文件损坏"
+                        if (ok) vltQueue = vltQueue.drop(1) else err = openError
                     }
-                }) { Text("打开") }
+                }) { Text(stringResource(R.string.sess_open)) }
             },
-            dismissButton = { TextButton(onClick = { vltQueue = vltQueue.drop(1) }) { Text("跳过") } },
+            dismissButton = { TextButton(onClick = { vltQueue = vltQueue.drop(1) }) { Text(stringResource(R.string.sess_skip)) } },
         )
     }
 
@@ -321,28 +325,30 @@ fun SessionHomeScreen(
         var pw by remember { mutableStateOf("") }
         var pw2 by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
+        val errEmpty = stringResource(R.string.sess_password_empty)
+        val errMismatch = stringResource(R.string.sess_password_mismatch)
         AlertDialog(
             onDismissRequest = { vltExportFor = null },
-            title = { Text("导出为 .vlt") },
+            title = { Text(stringResource(R.string.sess_export_vlt_title)) },
             text = {
                 Column(Modifier.imePadding()) {
-                    Text("设一个一次性密码;接收方用它解密,无需此应用账号")
+                    Text(stringResource(R.string.sess_export_vlt_hint))
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(pw, { pw = it; err = null }, "密码", isError = err != null, supportingText = err)
+                    PasswordField(pw, { pw = it; err = null }, stringResource(R.string.sess_password), isError = err != null, supportingText = err)
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(pw2, { pw2 = it; err = null }, "确认密码")
+                    PasswordField(pw2, { pw2 = it; err = null }, stringResource(R.string.sess_confirm_password))
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     when {
-                        pw.isEmpty() -> err = "密码不能为空"
-                        pw != pw2 -> err = "两次输入不一致"
+                        pw.isEmpty() -> err = errEmpty
+                        pw != pw2 -> err = errMismatch
                         else -> vltExportLauncher.launch("${f.storedName}.vlt")
                     }
-                }) { Text("选择保存位置") }
+                }) { Text(stringResource(R.string.sess_choose_save_location)) }
             },
-            dismissButton = { TextButton(onClick = { vltExportFor = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { vltExportFor = null }) { Text(stringResource(R.string.sess_cancel)) } },
         )
         // 文件位置选好后再加密导出
         pendingExportUri?.let { uri ->
@@ -368,23 +374,23 @@ fun SessionHomeScreen(
         var name by remember { mutableStateOf(f.storedName) }
         AlertDialog(
             onDismissRequest = { renameFor = null },
-            title = { Text("重命名") },
+            title = { Text(stringResource(R.string.sess_rename)) },
             text = {
                 OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
             },
             confirmButton = {
-                TextButton(onClick = { vm.rename(f.storedName, name); renameFor = null }) { Text("确定") }
+                TextButton(onClick = { vm.rename(f.storedName, name); renameFor = null }) { Text(stringResource(R.string.sess_ok)) }
             },
-            dismissButton = { TextButton(onClick = { renameFor = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { renameFor = null }) { Text(stringResource(R.string.sess_cancel)) } },
         )
     }
 
     // ---------- 删除确认 ----------
     deleteFor?.let { f ->
         ConfirmDialog(
-            title = "删除「${f.displayName}」?",
-            text = "临时文件立即销毁。",
-            confirmText = "删除",
+            title = stringResource(R.string.sess_delete_title, f.displayName),
+            text = stringResource(R.string.sess_delete_text),
+            confirmText = stringResource(R.string.sess_delete),
             danger = true,
             onConfirm = { vm.delete(f.storedName); deleteFor = null },
             onDismiss = { deleteFor = null },
@@ -394,9 +400,9 @@ fun SessionHomeScreen(
     // ---------- 退出确认 ----------
     if (exitConfirm) {
         ConfirmDialog(
-            title = "退出临时空间?",
-            text = "空间内 ${files.size} 个文件将永久销毁。",
-            confirmText = "销毁并退出",
+            title = stringResource(R.string.sess_exit_title),
+            text = stringResource(R.string.sess_exit_text, files.size),
+            confirmText = stringResource(R.string.sess_destroy_and_exit),
             danger = true,
             onConfirm = {
                 vm.destroySession()

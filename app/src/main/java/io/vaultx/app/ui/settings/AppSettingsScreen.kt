@@ -36,8 +36,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -50,22 +52,23 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val flagSecure by container.settings.flagSecure.collectAsState()
 
     val lockOptions = listOf(
-        0 to "立即",
-        30 to "30 秒",
-        60 to "1 分钟",
-        300 to "5 分钟",
-        600 to "10 分钟",
-        900 to "15 分钟",
+        0 to stringResource(R.string.aset_lock_immediately),
+        30 to stringResource(R.string.aset_lock_30_seconds),
+        60 to stringResource(R.string.aset_lock_1_minute),
+        300 to stringResource(R.string.aset_lock_5_minutes),
+        600 to stringResource(R.string.aset_lock_10_minutes),
+        900 to stringResource(R.string.aset_lock_15_minutes),
     )
+    val panicKeyword = stringResource(R.string.aset_panic_confirm_keyword)
     var panicConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("应用设置") },
+                title = { Text(stringResource(R.string.aset_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.aset_back))
                     }
                 },
             )
@@ -79,7 +82,7 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 .padding(horizontal = 20.dp),
         ) {
             Spacer(Modifier.height(8.dp))
-            Text("安全", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.aset_section_security), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
 
             Row(
@@ -87,9 +90,9 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("防截屏", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.aset_flag_secure), style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "禁止截图/录屏与最近任务缩略图泄露内容",
+                        stringResource(R.string.aset_flag_secure_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -102,9 +105,9 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
-            Text("进入后台后自动锁定", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.aset_auto_lock_title), style = MaterialTheme.typography.bodyLarge)
             Text(
-                "锁定时内存中的密钥与已解密内容立即清零",
+                stringResource(R.string.aset_auto_lock_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -125,22 +128,22 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Text(
-                "VaultX 不联网、不收集数据、不要权限。\n所有密钥仅存于内存,进程退出即消失。",
+                stringResource(R.string.aset_privacy_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Text("危险区", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.aset_danger_zone), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { panicConfirm = true },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("紧急销毁所有库", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.aset_panic_wipe), color = MaterialTheme.colorScheme.error)
             }
             Text(
-                "胁迫或紧急场景下一键抹除全部保险库与临时空间。",
+                stringResource(R.string.aset_panic_wipe_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -152,19 +155,18 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
         var confirmText by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { panicConfirm = false },
-            title = { Text("紧急销毁所有库?", color = MaterialTheme.colorScheme.error) },
+            title = { Text(stringResource(R.string.aset_panic_dialog_title), color = MaterialTheme.colorScheme.error) },
             text = {
                 Column(Modifier.imePadding()) {
                     Text(
-                        "将永久删除全部保险库及临时空间内容,无法恢复。" +
-                            "(闪存磨损均衡下快速删除不能保证每个物理块都被回收——这是同类工具的共同边界。)",
+                        stringResource(R.string.aset_panic_dialog_text),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = confirmText,
                         onValueChange = { confirmText = it },
-                        label = { Text("输入「销毁」确认") },
+                        label = { Text(stringResource(R.string.aset_panic_confirm_label, panicKeyword)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -172,14 +174,14 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
             },
             confirmButton = {
                 TextButton(
-                    enabled = confirmText == "销毁",
+                    enabled = confirmText == panicKeyword,
                     onClick = {
                         panicConfirm = false
                         scope.launch(Dispatchers.IO) { container.panicWipe() }
                     },
-                ) { Text("立即销毁", color = MaterialTheme.colorScheme.error) }
+                ) { Text(stringResource(R.string.aset_panic_wipe_now), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { panicConfirm = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { panicConfirm = false }) { Text(stringResource(R.string.aset_cancel)) } },
         )
     }
 }

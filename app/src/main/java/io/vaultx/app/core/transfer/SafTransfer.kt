@@ -48,7 +48,10 @@ class SafTransfer(private val context: Context) {
             override val mimeType = DocumentsContract.Document.MIME_TYPE_DIR
             override val isDirectory = true
             override fun open(): InputStream = throw UnsupportedOperationException("directory has no stream")
-            override fun children(): List<TransferEngine.ImportSource> = listChildren(docUri)
+            // 计数与导入各遍历一次:缓存子项快照,同一目录只做一次批量 query IPC,
+            // 也保证两阶段看到同一份列表(源目录中途变化不会导致进度与实导不一致)
+            private val cached: List<TransferEngine.ImportSource> by lazy { listChildren(docUri) }
+            override fun children(): List<TransferEngine.ImportSource> = cached
         }
 
     /** 一次批量 query 列目录(单 IPC 拿全部子项的 id/name/size/mime)。 */

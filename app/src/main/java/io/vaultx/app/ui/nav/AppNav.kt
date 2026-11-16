@@ -9,6 +9,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation3.runtime.entryProvider
@@ -25,6 +27,7 @@ import io.vaultx.app.ui.vault.VaultSettingsScreen
 import io.vaultx.app.ui.viewer.AudioPlayerScreen
 import io.vaultx.app.ui.viewer.ImageViewerScreen
 import io.vaultx.app.ui.viewer.VideoPlayerScreen
+import kotlinx.coroutines.launch
 
 /**
  * 导航宿主:Navigation 3 的 NavDisplay + 序列化 Route 栈。
@@ -78,10 +81,14 @@ fun AppNav(container: AppContainer, modifier: Modifier = Modifier) {
         predictivePopTransitionSpec = predictivePopSpec,
         entryProvider = entryProvider {
             entry<Route.ModeSelect> {
+                val onboardingDone by container.settings.onboardingDone.collectAsState()
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
                 ModeSelectScreen(
                     onLockedMode = { backStack.add(Route.LockedHome) },
                     onSessionMode = { backStack.add(Route.SessionHome) },
                     onSettings = { backStack.add(Route.AppSettings) },
+                    showOnboarding = !onboardingDone,
+                    onOnboardingDone = { scope.launch { container.settings.setOnboardingDone() } },
                 )
             }
             entry<Route.AppSettings> {

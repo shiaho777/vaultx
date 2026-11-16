@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ImageViewerScreen -->
+    <string name="iview_open_failed">无法打开该文件</string>
+    <string name="iview_back">返回</string>
+
+    <!-- VideoPlayerScreen -->
+    <string name="vplay_error">播放失败:%1$s</string>
+    <string name="vplay_open_failed">无法打开该视频</string>
+    <string name="vplay_back">返回</string>
+    <string name="vplay_previous">上一部</string>
+    <string name="vplay_next">下一部</string>
+
+    <!-- AudioPlayerScreen -->
+    <string name="aplay_error">播放失败:%1$s</string>
+    <string name="aplay_open_failed">无法打开该音频</string>
+    <string name="aplay_previous">上一首</string>
+    <string name="aplay_pause">暂停</string>
+    <string name="aplay_play">播放</string>
+    <string name="aplay_next">下一首</string>
+    <string name="aplay_back">返回</string>
+</resources>

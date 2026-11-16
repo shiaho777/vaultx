@@ -3,6 +3,7 @@ package io.vaultx.app.ui.session
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
 import io.vaultx.app.core.session.SessionManager.SessionFile
 import io.vaultx.app.core.transfer.TransferEngine
 import java.io.OutputStream
@@ -40,11 +41,11 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
      */
     fun import(sources: List<TransferEngine.ImportSource>) {
         viewModelScope.launch(Dispatchers.IO) {
-            _busy.value = "导入中…"
+            _busy.value = container.context.getString(R.string.svm_importing)
             try {
                 sources.forEach { importRecursive(it) }
             } catch (e: Throwable) {
-                _error.value = "导入失败:${e.message}"
+                _error.value = container.context.getString(R.string.svm_import_failed, e.message)
             }
             _busy.value = null
             _files.value = container.sessionManager.listFiles()
@@ -62,14 +63,18 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
     /** 导入 .vlt 便携密文(需一次性密码;密码数组由本方法接管,用完清零)。 */
     fun importVlt(source: TransferEngine.ImportSource, password: CharArray, onResult: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            _busy.value = "解密中…"
+            _busy.value = container.context.getString(R.string.svm_decrypting)
             try {
                 source.open().use { ins ->
                     container.sessionManager.importVlt(source.name, ins, password)
                 }
                 withContext(Dispatchers.Main) { onResult(true) }
             } catch (e: Throwable) {
-                _error.value = if (e is io.vaultx.app.core.crypto.WrongPasswordException) "密码错误" else "解密失败:${e.message}"
+                _error.value = if (e is io.vaultx.app.core.crypto.WrongPasswordException) {
+                    container.context.getString(R.string.svm_wrong_password)
+                } else {
+                    container.context.getString(R.string.svm_decrypt_failed, e.message)
+                }
                 withContext(Dispatchers.Main) { onResult(false) }
             } finally {
                 password.fill('\u0000')
@@ -82,12 +87,12 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
     /** 加密导出为 .vlt(一次性密码;密码数组由本方法接管,用完清零)。 */
     fun exportVlt(storedName: String, password: CharArray, output: OutputStream, onDone: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            _busy.value = "加密导出中…"
+            _busy.value = container.context.getString(R.string.svm_export_encrypted_busy)
             try {
                 output.use { container.sessionManager.exportAsVlt(storedName, password, it) }
                 withContext(Dispatchers.Main) { onDone() }
             } catch (e: Throwable) {
-                _error.value = "导出失败:${e.message}"
+                _error.value = container.context.getString(R.string.svm_export_failed, e.message)
             } finally {
                 password.fill('\u0000')
             }
@@ -98,11 +103,11 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
     /** 明文导出(会话文件本来就是明文,直接拷出)。 */
     fun exportPlain(storedName: String, output: OutputStream) {
         viewModelScope.launch(Dispatchers.IO) {
-            _busy.value = "导出中…"
+            _busy.value = container.context.getString(R.string.svm_exporting)
             try {
                 output.use { out -> container.sessionManager.file(storedName).inputStream().use { it.copyTo(out) } }
             } catch (e: Throwable) {
-                _error.value = "导出失败:${e.message}"
+                _error.value = container.context.getString(R.string.svm_export_failed, e.message)
             }
             _busy.value = null
         }

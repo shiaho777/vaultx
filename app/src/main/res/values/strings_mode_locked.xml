@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ModeSelectScreen -->
+    <string name="mode_tagline">Local encrypted file vault · Offline · No backdoors</string>
+    <string name="mode_vault_title">Vault</string>
+    <string name="mode_vault_subtitle">Persistent encrypted storage · Independent password per vault · Folders / decoy vaults / biometrics</string>
+    <string name="mode_session_title">Temporary Space</string>
+    <string name="mode_session_subtitle">Burn-after-use mode · View/convert .vlt portable ciphertext · Everything disappears on exit</string>
+    <string name="mode_settings">Settings</string>
+
+    <!-- LockedHomeScreen -->
+    <string name="locked_load_failed">Failed to load list: %1$s</string>
+    <string name="locked_bio_unavailable">Biometrics unavailable</string>
+    <string name="locked_bio_unlock_failed">Biometric unlock failed</string>
+    <string name="locked_bio_error">Biometric authentication failed: %1$s</string>
+    <string name="locked_unlock_title">Unlock “%1$s”</string>
+    <string name="locked_use_password">Use password</string>
+    <string name="locked_bio_key_invalidated">Biometric key invalidated (fingerprint changed); please unlock with your password</string>
+    <string name="locked_reading_archive">Reading archive info…</string>
+    <string name="locked_invalid_archive">Not a valid .fvault archive</string>
+    <string name="locked_title">Vaults</string>
+    <string name="locked_back">Back</string>
+    <string name="locked_more">More</string>
+    <string name="locked_import_archive">Import .fvault archive</string>
+    <string name="locked_panic_wipe_all">Emergency wipe all vaults</string>
+    <string name="locked_new_vault">New vault</string>
+    <string name="locked_empty_title">No vaults yet</string>
+    <string name="locked_empty_subtitle">Tap + at the bottom right to create one; you can also restore by importing a .fvault archive from the menu</string>
+    <string name="locked_creating">Creating vault… (deriving key with Argon2id)</string>
+    <string name="locked_create_failed">Creation failed: %1$s</string>
+    <string name="locked_wrong_password">Wrong password</string>
+    <string name="locked_unlock_failed">Unlock failed: %1$s</string>
+    <string name="locked_rename">Rename</string>
+    <string name="locked_export_backup">Export .fvault backup</string>
+    <string name="locked_delete_irreversible">Delete (irreversible)</string>
+    <string name="locked_export_progress">Exporting archive %1$d / %2$d</string>
+    <string name="locked_export_failed">Export failed: %1$s</string>
+    <string name="locked_import_title">Import “%1$s”</string>
+    <string name="locked_import_password_hint">Enter the password for this archive (real or decoy password both work)</string>
+    <string name="locked_password">Password</string>
+    <string name="locked_import_progress">Verifying and importing %1$d / %2$d</string>
+    <string name="locked_cannot_read_file">Unable to read the selected file</string>
+    <string name="locked_import">Import</string>
+    <string name="locked_cancel">Cancel</string>
+    <string name="locked_name">Name</string>
+    <string name="locked_confirm">OK</string>
+    <string name="locked_delete_title">Delete “%1$s”?</string>
+    <string name="locked_delete_text">All encrypted files in this vault will be permanently deleted and cannot be recovered. Export a .fvault backup first.</string>
+    <string name="locked_delete_forever">Delete permanently</string>
+    <string name="locked_panic_title">Emergency wipe all vaults?</string>
+    <string name="locked_panic_text">This will permanently delete all %1$d vaults and Temporary Space contents; recovery is impossible. (Note: due to flash wear leveling, quick deletion cannot guarantee every physical block is reclaimed — a limitation shared by all similar tools.)</string>
+    <string name="locked_panic_confirm_label">Type “%1$s” to confirm</string>
+    <string name="locked_panic_keyword">DESTROY</string>
+    <string name="locked_wiping">Wiping…</string>
+    <string name="locked_wipe_now">Wipe now</string>
+    <string name="locked_entry_count"> · %1$d items</string>
+    <string name="locked_master_password_badge"> · Master password</string>
+    <string name="locked_create_title">New vault</string>
+    <string name="locked_confirm_password">Confirm password</string>
+    <string name="locked_password_strength">Password strength: %1$s</string>
+    <string name="locked_high_security">High-security key derivation (Argon2id 64 MiB, slower unlock)</string>
+    <string name="locked_master_gate">Master password (required to open the vault; if off, the index is readable in plaintext)</string>
+    <string name="locked_name_empty">Name cannot be empty</string>
+    <string name="locked_password_min">Password must be at least %1$d characters</string>
+    <string name="locked_password_mismatch">Passwords do not match</string>
+    <string name="locked_create">Create</string>
+    <string name="locked_deriving">Deriving key…</string>
+    <string name="locked_use_biometrics">Use biometrics instead</string>
+    <string name="locked_unlock">Unlock</string>
+</resources>

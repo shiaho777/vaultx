@@ -1,8 +1,11 @@
 package io.vaultx.app.ui.vault
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.vaultx.app.AppContainer
+import io.vaultx.app.R
+import io.vaultx.app.core.state.AppSettings
 import io.vaultx.app.core.transfer.TransferEngine
 import io.vaultx.app.core.vault.MediaKind
 import io.vaultx.app.core.vault.UnlockedVault
@@ -11,17 +14,22 @@ import io.vaultx.app.core.vault.VaultIndex
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** 排序档位。 */
-enum class SortBy(val label: String) { NAME("名称"), TIME("时间"), SIZE("大小"), KIND("类型") }
+enum class SortBy(@StringRes val labelRes: Int) {
+    NAME(R.string.vm_sort_name), TIME(R.string.vm_sort_time), SIZE(R.string.vm_sort_size), KIND(R.string.vm_sort_kind),
+}
 
-/** 传输进度。 */
-data class TransferState(val done: Int, val total: Int, val label: String)
+/** 传输进度。[fileBytes] = 当前文件已传输字节数(大文件不再长期停在 0/1)。 */
+data class TransferState(val done: Int, val total: Int, val label: String, val fileBytes: Long = 0)
 
 /**
  * 库内文件浏览/操作的状态中枢。所有磁盘+解密动作都在 IO 线程。
@@ -39,6 +47,11 @@ class VaultViewModel(
 ) : ViewModel() {
 
     private val unlocked: UnlockedVault? get() = container.session.get(vaultId)
+
+    /** 本地化文案:经容器的应用级 Context 读取字符串资源。 */
+    private fun str(@StringRes resId: Int, vararg args: Any?): String =
+        if (args.isEmpty()) container.context.getString(resId)
+        else container.context.getString(resId, *args)
 
     private val _index = MutableStateFlow<VaultIndex?>(null)
     val index: StateFlow<VaultIndex?> = _index
@@ -72,6 +85,23 @@ class VaultViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
+    /**
+     * 备份到期提醒:超过阈值未导出 .fvault(或从未备份)。
+     * 诱骗会话恒 false——备份时间属于真库管理信息,不能向诱骗持有者泄露。
+     */
+    val backupDue: StateFlow<Boolean> = combine(
+        container.settings.backupTimes,
+        _index,
+    ) { times, idx ->
+        val u = unlocked
+        if (u == null || u.viaDecoy || idx == null || idx.entries.isEmpty()) {
+            false
+        } else {
+            val last = times[vaultId] ?: 0L
+            System.currentTimeMillis() - last > AppSettings.BACKUP_REMINDER_DAYS * 24 * 3600 * 1000
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** 非错误性结果提示(如"已导出 8 项,1 个失败")。 */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice
@@ -82,9 +112,14 @@ class VaultViewModel(
     private val _undoDelete = MutableStateFlow<PendingDeletion?>(null)
     val undoDelete: StateFlow<PendingDeletion?> = _undoDelete
 
-    private val indexMutex = Mutex()
+    // 与设置页共享同一把锁(容器按 vaultId 提供):索引读改写全局串行
+    private val indexMutex: Mutex = container.indexMutexFor(vaultId)
     private val cancelFlag = AtomicBoolean(false)
+    // 传输入口 CAS 占位:_transfer 的可见检查与 IO 协程置位之间有窗口,快速双击可并发
+    private val transferBusy = AtomicBoolean(false)
     private var undoJob: kotlinx.coroutines.Job? = null
+    // 缩略图标记合并落盘:滚动画廊时逐张全量重加密索引会造成 N 次写放大
+    private val thumbFlushJob = java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null)
 
     val currentFolderId: String? get() = _folderStack.value.lastOrNull()?.id
     val viaDecoy: Boolean get() = unlocked?.viaDecoy == true
@@ -112,7 +147,7 @@ class VaultViewModel(
                 flushPendingDelete(u)
                 val idx = runCatching { container.vaultManager.loadIndex(u) }
                     .getOrElse {
-                        _error.value = "索引读取失败:${it.message}"
+                        _error.value = str(R.string.vm_error_index_load, it.message)
                         return@withLock
                     }
                 _index.value = idx
@@ -206,13 +241,13 @@ class VaultViewModel(
      * 明文只在流里过,不落地;密码数组用完即清零。
      */
     fun exportAsVlt(entry: VaultEntry, password: CharArray, output: java.io.OutputStream) {
-        if (_transfer.value != null) {
+        if (!transferBusy.compareAndSet(false, true)) {
             password.fill('\u0000')
-            _error.value = "已有传输进行中,请先等待或取消"
+            _error.value = str(R.string.vm_transfer_busy)
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
-            _transfer.value = TransferState(0, 1, "加密导出…")
+            _transfer.value = TransferState(0, 1, str(R.string.vm_transfer_encrypt_export))
             try {
                 val u = unlocked ?: return@launch
                 val blobId = entry.blobId ?: throw IllegalStateException("folder has no blob")
@@ -221,10 +256,11 @@ class VaultViewModel(
                         io.vaultx.app.core.crypto.PortableCipher.encryptTo(password, dec, out)
                     }
                 }
-                _notice.value = "已导出 ${entry.name}.vlt"
+                _notice.value = str(R.string.vm_notice_exported_vlt, entry.name)
             } catch (e: Throwable) {
-                _error.value = "导出失败:${e.message}"
+                _error.value = str(R.string.vm_error_export, e.message)
             } finally {
+                transferBusy.set(false)
                 password.fill('\u0000')
                 _transfer.value = null
             }
@@ -243,15 +279,16 @@ class VaultViewModel(
         intoFolderId: String?,
         onDone: (Boolean) -> Unit = {},
     ) {
-        if (_transfer.value != null) {
+        if (!transferBusy.compareAndSet(false, true)) {
             password.fill('\u0000')
-            _error.value = "已有传输进行中,请先等待或取消"
+            _error.value = str(R.string.vm_transfer_busy)
             onDone(false)
             return
         }
         val targetFolder = intoFolderId ?: currentFolderId
         viewModelScope.launch(Dispatchers.IO) {
-            _transfer.value = TransferState(0, 1, "解密导入…")
+            cancelFlag.set(false)
+            _transfer.value = TransferState(0, 1, str(R.string.vm_transfer_decrypt_import))
             var ok = false
             try {
                 indexMutex.withLock {
@@ -271,7 +308,24 @@ class VaultViewModel(
                                 sink.outputStream().use { raw ->
                                     u.crypto.encryptingStream(
                                         raw, io.vaultx.app.core.crypto.VaultCrypto.blobAd(u.vaultId, blobId),
-                                    ).use { enc -> size = dec.copyTo(enc) }
+                                    ).use { enc ->
+                                        // 分块拷贝:大文件可取消、有字节进度(整段 copyTo 两者皆无)
+                                        val buf = ByteArray(64 * 1024)
+                                        var lastEmit = 0L
+                                        while (true) {
+                                            if (cancelFlag.get()) throw TransferEngine.TransferCancelledException()
+                                            val n = dec.read(buf)
+                                            if (n < 0) break
+                                            enc.write(buf, 0, n)
+                                            size += n
+                                            val now = System.nanoTime()
+                                            if (now - lastEmit >= 50_000_000L) {
+                                                lastEmit = now
+                                                _transfer.value = _transfer.value?.copy(fileBytes = size)
+                                            }
+                                        }
+                                        _transfer.value = _transfer.value?.copy(fileBytes = size)
+                                    }
                                 }
                             }
                         }
@@ -287,14 +341,17 @@ class VaultViewModel(
                         parentId = targetFolder,
                     )
                     persist(u, idx)
-                    _notice.value = "已解密导入「$name」"
+                    _notice.value = str(R.string.vm_notice_imported_vlt, name)
                     ok = true
                 }
             } catch (e: io.vaultx.app.core.crypto.WrongPasswordException) {
-                _error.value = "密码错误"
+                _error.value = str(R.string.vm_error_wrong_password)
+            } catch (e: TransferEngine.TransferCancelledException) {
+                _notice.value = str(R.string.vm_notice_import_cancelled)
             } catch (e: Throwable) {
-                _error.value = "导入失败:${e.message}"
+                _error.value = str(R.string.vm_error_import, e.message)
             } finally {
+                transferBusy.set(false)
                 password.fill('\u0000')
                 _transfer.value = null
                 withContext(Dispatchers.Main) { onDone(ok) }
@@ -304,14 +361,14 @@ class VaultViewModel(
 
     /** [intoFolderId] 指定目标文件夹("导入到此处"),null = 当前目录。 */
     fun import(sources: List<TransferEngine.ImportSource>, intoFolderId: String? = null) {
-        if (_transfer.value != null) {
-            _error.value = "已有传输进行中,请先等待或取消"
+        if (!transferBusy.compareAndSet(false, true)) {
+            _error.value = str(R.string.vm_transfer_busy)
             return
         }
         val targetFolder = intoFolderId ?: currentFolderId
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
-            _transfer.value = TransferState(0, 0, "导入中…")
+            _transfer.value = TransferState(0, 0, str(R.string.vm_transfer_importing))
             // 导入全程持索引锁:中途的改名/删除排队,取锁后读到的是导入后的最新索引
             indexMutex.withLock {
                 try {
@@ -321,24 +378,26 @@ class VaultViewModel(
                     val res = container.transferEngine.import(
                         u, sources, targetFolder, idx,
                         isCancelled = { cancelFlag.get() },
-                        onProgress = { done, total -> _transfer.value = _transfer.value?.copy(done = done, total = total) ?: TransferState(done, total, "导入中…") },
+                        onProgress = { done, total -> _transfer.value = _transfer.value?.copy(done = done, total = total) ?: TransferState(done, total, str(R.string.vm_transfer_importing)) },
                         onCheckpoint = { i -> container.vaultManager.saveIndex(u, i) },
-                        onFileStart = { name -> _transfer.value = _transfer.value?.copy(label = name) ?: TransferState(0, 0, name) },
+                        onFileStart = { name -> _transfer.value = _transfer.value?.copy(label = name, fileBytes = 0) ?: TransferState(0, 0, name) },
+                        onBytes = { b -> _transfer.value = _transfer.value?.copy(fileBytes = b) },
                     )
                     container.vaultManager.saveIndex(u, idx)
                     _index.value = idx
                     _notice.value = buildString {
-                        append("已导入 ${res.imported} 项")
-                        if (res.skipped > 0) append("(跳过 ${res.skipped} 个重复)")
+                        append(str(R.string.vm_notice_imported_count, res.imported))
+                        if (res.skipped > 0) append(str(R.string.vm_notice_imported_skipped, res.skipped))
                     }
                 } catch (e: TransferEngine.TransferCancelledException) {
                     // 检查点已终存;重读让 UI 显示保留下的部分导入
                     val u = unlocked
                     if (u != null) _index.value = container.vaultManager.loadIndex(u)
-                    if (e.completed > 0) _notice.value = "已取消;保留已导入的 ${e.completed} 项"
+                    if (e.completed > 0) _notice.value = str(R.string.vm_notice_import_cancelled_partial, e.completed)
                 } catch (e: Throwable) {
-                    _error.value = "导入失败:${e.message}"
+                    _error.value = str(R.string.vm_error_import, e.message)
                 } finally {
+                    transferBusy.set(false)
                     _transfer.value = null
                 }
             }
@@ -379,7 +438,7 @@ class VaultViewModel(
                 // 防环:目标不能是被移条目自身或其子孙
                 val forbidden = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
                 if (targetFolderId != null && targetFolderId in forbidden) {
-                    _error.value = "不能移动到自身内部"
+                    _error.value = str(R.string.vm_error_move_into_self)
                     return@withLock
                 }
                 var changed = false
@@ -413,7 +472,7 @@ class VaultViewModel(
                 val pd = PendingDeletion(victims, victims.mapNotNull { it.blobId })
                 _undoDelete.value = pd
                 scheduleDeleteFinalize(u, pd)
-                _notice.value = "已删除 ${victims.size} 项"
+                _notice.value = str(R.string.vm_notice_deleted_count, victims.size)
                 clearSelection()
             }
         }
@@ -445,7 +504,8 @@ class VaultViewModel(
                 }
                 persist(u, idx)
                 val skipped = pd.entries.size - restored
-                _notice.value = if (skipped == 0) "已恢复 $restored 项" else "已恢复 $restored 项,$skipped 项已无法恢复"
+                _notice.value = if (skipped == 0) str(R.string.vm_notice_restored_count, restored)
+                else str(R.string.vm_notice_restored_partial, restored, skipped)
             }
         }
     }
@@ -478,6 +538,13 @@ class VaultViewModel(
             runCatching { container.vaultManager.deleteBlob(vaultId, it) }
         }
         _undoDelete.value = null
+        // 未落盘的缩略图标记兜底同步落盘(scope 已取消,协程路线不可用);
+        // 会话可能已锁定,失败静默——标记可由下次浏览幂等重建
+        thumbFlushJob.getAndSet(null)?.cancel()
+        runCatching {
+            val u = unlocked ?: return@runCatching
+            container.vaultManager.saveIndex(u, container.vaultManager.loadIndex(u))
+        }
     }
 
     fun newFolder(name: String) {
@@ -547,12 +614,12 @@ class VaultViewModel(
                         }
                     }
                     persist(u, idx)
-                    _notice.value = "已创建副本"
+                    _notice.value = str(R.string.vm_notice_duplicated)
                 } catch (e: Throwable) {
                     createdBlobs.forEach { container.vaultManager.deleteBlob(u.vaultId, it) }
                     idx.entries.removeAll { it.id in addedIds }
                     persist(u, idx)
-                    _error.value = "复制失败:${e.message}"
+                    _error.value = str(R.string.vm_error_duplicate, e.message)
                 }
             }
         }
@@ -576,13 +643,13 @@ class VaultViewModel(
     // ---------------- 导出 ----------------
 
     fun exportEntries(ids: Set<String>, sinkFactory: TransferEngine.ExportSinkFactory) {
-        if (_transfer.value != null) {
-            _error.value = "已有传输进行中,请先等待或取消"
+        if (!transferBusy.compareAndSet(false, true)) {
+            _error.value = str(R.string.vm_transfer_busy)
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
-            _transfer.value = TransferState(0, 0, "导出中…")
+            _transfer.value = TransferState(0, 0, str(R.string.vm_transfer_exporting))
             try {
                 val u = unlocked ?: return@launch
                 // 在索引锁内收集目标快照(VaultEntry 不可变)并复制索引本身——
@@ -596,21 +663,23 @@ class VaultViewModel(
                 val res = container.transferEngine.exportEntries(
                     u, targets, idx, sinkFactory,
                     isCancelled = { cancelFlag.get() },
-                    onProgress = { done, total -> _transfer.value = _transfer.value?.copy(done = done, total = total) ?: TransferState(done, total, "导出中…") },
-                    onFileStart = { name -> _transfer.value = _transfer.value?.copy(label = name) ?: TransferState(0, 0, name) },
+                    onProgress = { done, total -> _transfer.value = _transfer.value?.copy(done = done, total = total) ?: TransferState(done, total, str(R.string.vm_transfer_exporting)) },
+                    onFileStart = { name -> _transfer.value = _transfer.value?.copy(label = name, fileBytes = 0) ?: TransferState(0, 0, name) },
+                    onBytes = { b -> _transfer.value = _transfer.value?.copy(fileBytes = b) },
                 )
                 _notice.value = buildString {
-                    append("已导出 ${res.exported} 项")
+                    append(str(R.string.vm_notice_exported_count, res.exported))
                     if (res.failed > 0) {
-                        append(",${res.failed} 个失败")
-                        res.failedNames.take(3).let { if (it.isNotEmpty()) append(":${it.joinToString("、")}") }
+                        append(str(R.string.vm_notice_exported_failed, res.failed))
+                        res.failedNames.take(3).let { if (it.isNotEmpty()) append(":${it.joinToString(str(R.string.vm_name_separator))}") }
                     }
                 }
             } catch (_: TransferEngine.TransferCancelledException) {
-                _notice.value = "导出已取消"
+                _notice.value = str(R.string.vm_notice_export_cancelled)
             } catch (e: Throwable) {
-                _error.value = "导出失败:${e.message}"
+                _error.value = str(R.string.vm_error_export, e.message)
             } finally {
+                transferBusy.set(false)
                 _transfer.value = null
                 clearSelection()
             }
@@ -635,7 +704,11 @@ class VaultViewModel(
                     val i = idx.entries.indexOfFirst { it.id == entry.id }
                     if (i >= 0 && !idx.entries[i].hasThumb) {
                         idx.entries[i] = idx.entries[i].copy(hasThumb = true)
-                        persist(u2, idx)
+                        // 只刷新内存态,延迟合并落盘:滚动画廊时逐张全量重加密索引
+                        // 会造成 N 次写放大。未落盘窗口内进程死亡也无碍——thumb 文件
+                        // 已存在,下次浏览会重新生成标记(幂等)
+                        _index.value = idx
+                        scheduleThumbFlush()
                     }
                 }
             } catch (_: Throwable) {
@@ -647,17 +720,43 @@ class VaultViewModel(
         }
     }
 
+    /** 合并落盘缩略图标记:每张新缩略图重置 1.5s 防抖,滚动停止后一次性写盘。 */
+    private fun scheduleThumbFlush() {
+        while (true) {
+            val prev = thumbFlushJob.get()
+            val job = viewModelScope.launch(Dispatchers.IO) {
+                prev?.join() // 串行链:上一轮防抖结束才开始本轮计时
+                kotlinx.coroutines.delay(THUMB_FLUSH_DEBOUNCE_MS)
+                flushThumbsNow()
+            }
+            if (thumbFlushJob.compareAndSet(prev, job)) return
+            job.cancel()
+        }
+    }
+
+    private suspend fun flushThumbsNow() {
+        indexMutex.withLock {
+            val u = unlocked ?: return@withLock
+            runCatching { container.vaultManager.saveIndex(u, container.vaultManager.loadIndex(u)) }
+        }
+    }
+
     /** 索引落盘并刷新内存态;失败时报错且不更新界面(返回 false)。 */
     private fun persist(u: UnlockedVault, idx: VaultIndex): Boolean {
+        // 常规落盘顺带覆盖未持久化的缩略图标记,防抖任务作废
+        thumbFlushJob.getAndSet(null)?.cancel()
         return runCatching { container.vaultManager.saveIndex(u, idx) }
             .onSuccess { _index.value = idx }
-            .onFailure { _error.value = "保存索引失败:${it.message}" }
+            .onFailure { _error.value = str(R.string.vm_error_index_save, it.message) }
             .isSuccess
     }
 
     companion object {
         /** 删除撤销窗口:blob 延迟删除时长,窗口内可整批恢复。 */
         private const val UNDO_WINDOW_MS = 8_000L
+
+        /** 缩略图标记合并落盘的防抖间隔。 */
+        private const val THUMB_FLUSH_DEBOUNCE_MS = 1_500L
 
         /**
          * 中文文件名按拼音序排列的 Collator(Comparator 接口线程安全);

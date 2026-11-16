@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SessionHomeScreen -->
+    <string name="sess_title">Temporary space</string>
+    <string name="sess_exit">Exit</string>
+    <string name="sess_import">Import</string>
+    <string name="sess_import_files">Import files</string>
+    <string name="sess_import_folder_flat">Import folder (flattened)</string>
+    <string name="sess_burn_notice">Files are destroyed when you leave or restart · Tap + to import files or .vlt ciphertext</string>
+    <string name="sess_empty_title">The temporary space is empty</string>
+    <string name="sess_empty_subtitle">Import files or portable .vlt ciphertext to get started</string>
+    <string name="sess_preview">Preview</string>
+    <string name="sess_text_preview">Text preview</string>
+    <string name="sess_rename">Rename</string>
+    <string name="sess_export_vlt">Export as .vlt ciphertext</string>
+    <string name="sess_export_plain">Export plaintext</string>
+    <string name="sess_delete">Delete</string>
+    <string name="sess_close">Close</string>
+    <string name="sess_open_vlt_title">Open .vlt</string>
+    <string name="sess_vlt_password_prompt">Enter the password for “%1$s”</string>
+    <string name="sess_this_file">this file</string>
+    <string name="sess_password">Password</string>
+    <string name="sess_confirm_password">Confirm password</string>
+    <string name="sess_vlt_queue_remaining">%1$d more .vlt file(s) pending</string>
+    <string name="sess_vlt_open_error">Wrong password or corrupted file</string>
+    <string name="sess_open">Open</string>
+    <string name="sess_skip">Skip</string>
+    <string name="sess_export_vlt_title">Export as .vlt</string>
+    <string name="sess_export_vlt_hint">Set a one-time password; the recipient uses it to decrypt, no app account needed</string>
+    <string name="sess_password_empty">Password cannot be empty</string>
+    <string name="sess_password_mismatch">Passwords do not match</string>
+    <string name="sess_choose_save_location">Choose save location</string>
+    <string name="sess_cancel">Cancel</string>
+    <string name="sess_ok">OK</string>
+    <string name="sess_delete_title">Delete “%1$s”?</string>
+    <string name="sess_delete_text">The temporary file will be destroyed immediately.</string>
+    <string name="sess_exit_title">Leave the temporary space?</string>
+    <string name="sess_exit_text">%1$d file(s) in the space will be permanently destroyed.</string>
+    <string name="sess_destroy_and_exit">Destroy and exit</string>
+
+    <!-- SessionPlayerScreen -->
+    <string name="splay_file_missing">File no longer exists</string>
+    <string name="splay_play_error">Playback failed: %1$s</string>
+    <string name="splay_pause">Pause</string>
+    <string name="splay_play">Play</string>
+    <string name="splay_unsupported">Preview is not supported for this file type</string>
+    <string name="splay_back">Back</string>
+
+    <!-- Widgets -->
+    <string name="widget_hide_password">Hide password</string>
+    <string name="widget_show_password">Show password</string>
+    <string name="widget_confirm">Confirm</string>
+    <string name="widget_cancel">Cancel</string>
+</resources>

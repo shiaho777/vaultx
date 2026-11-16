@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="backup_due_banner">已超过 %1$d 天未备份。导出 .fvault 归档,给文件留一份加密副本。</string>
+    <string name="backup_due_action">去备份</string>
+    <string name="backup_due_dismiss">忽略</string>
+    <string name="backup_row_title">备份状态</string>
+    <string name="backup_row_never">从未备份</string>
+    <string name="backup_row_last">最近备份:%1$s</string>
+    <string name="backup_row_hint">在库列表长按本库可导出 .fvault 归档;归档全程保持加密。</string>
+</resources>
