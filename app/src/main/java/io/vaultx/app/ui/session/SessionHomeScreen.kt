@@ -193,7 +193,13 @@ fun SessionHomeScreen(
                 }
             }
             busy?.let {
-                Text(it, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(16.dp))
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(it, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { vm.cancelBusy() }) { Text(stringResource(R.string.sess_cancel)) }
+                }
             }
             error?.let {
                 Text(
@@ -289,7 +295,6 @@ fun SessionHomeScreen(
     vltQueue.firstOrNull()?.let { uri ->
         var pw by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
-        val openError = stringResource(R.string.sess_vlt_open_error)
         val thisFile = stringResource(R.string.sess_this_file)
         AlertDialog(
             onDismissRequest = { vltQueue = vltQueue.drop(1) },
@@ -311,8 +316,9 @@ fun SessionHomeScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.importVlt(container.safTransfer.fileSource(uri), pw.toCharArray()) { ok ->
-                        if (ok) vltQueue = vltQueue.drop(1) else err = openError
+                    vm.importVlt(container.safTransfer.fileSource(uri), pw.toCharArray()) { failure ->
+                        // null = 成功/用户取消 → 弹下一个;非空 = 真实失败原因,可重试或跳过
+                        if (failure == null) vltQueue = vltQueue.drop(1) else err = failure
                     }
                 }) { Text(stringResource(R.string.sess_open)) }
             },

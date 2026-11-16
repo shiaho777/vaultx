@@ -9,6 +9,7 @@
     <string name="svm_export_encrypted_busy">Encrypting export…</string>
     <string name="svm_exporting">Exporting…</string>
     <string name="svm_export_failed">Export failed: %1$s</string>
+    <string name="svm_cancelled">Cancelled</string>
 
     <!-- PasswordStrength labels -->
     <string name="pw_weak">Weak</string>

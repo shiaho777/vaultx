@@ -247,16 +247,37 @@ class VaultViewModel(
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
+            cancelFlag.set(false)
             _transfer.value = TransferState(0, 1, str(R.string.vm_transfer_encrypt_export))
             try {
                 val u = unlocked ?: return@launch
                 val blobId = entry.blobId ?: throw IllegalStateException("folder has no blob")
                 output.use { out ->
                     container.vaultManager.openBlobStream(u, blobId).use { dec ->
-                        io.vaultx.app.core.crypto.PortableCipher.encryptTo(password, dec, out)
+                        io.vaultx.app.core.crypto.PortableCipher.openEncryptingStream(password, out).use { enc ->
+                            // 分块拷贝:大文件可取消、有字节进度(整段 encryptTo 两者皆无)
+                            val buf = ByteArray(64 * 1024)
+                            var size = 0L
+                            var lastEmit = 0L
+                            while (true) {
+                                if (cancelFlag.get()) throw TransferEngine.TransferCancelledException()
+                                val n = dec.read(buf)
+                                if (n < 0) break
+                                enc.write(buf, 0, n)
+                                size += n
+                                val now = System.nanoTime()
+                                if (now - lastEmit >= 50_000_000L) {
+                                    lastEmit = now
+                                    _transfer.value = _transfer.value?.copy(fileBytes = size)
+                                }
+                            }
+                            _transfer.value = _transfer.value?.copy(fileBytes = size)
+                        }
                     }
                 }
                 _notice.value = str(R.string.vm_notice_exported_vlt, entry.name)
+            } catch (e: TransferEngine.TransferCancelledException) {
+                _notice.value = str(R.string.vm_notice_export_cancelled)
             } catch (e: Throwable) {
                 _error.value = str(R.string.vm_error_export, e.message)
             } finally {
@@ -273,23 +294,24 @@ class VaultViewModel(
      * 导入 `.vlt` 便携密文并解密入库:解密流 → blob 加密,明文只过流不落地。
      * 名字剥 `.vlt` 后缀(大小写不敏感)再走重名消解;密码数组由本方法接管清零。
      */
+    /** [onDone] 结果:null = 成功;非空 = 失败原因(供对话框内联展示,取消与错密码区分开)。 */
     fun importVlt(
         source: TransferEngine.ImportSource,
         password: CharArray,
         intoFolderId: String?,
-        onDone: (Boolean) -> Unit = {},
+        onDone: (String?) -> Unit = {},
     ) {
         if (!transferBusy.compareAndSet(false, true)) {
             password.fill('\u0000')
             _error.value = str(R.string.vm_transfer_busy)
-            onDone(false)
+            onDone(str(R.string.vm_transfer_busy))
             return
         }
         val targetFolder = intoFolderId ?: currentFolderId
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _transfer.value = TransferState(0, 1, str(R.string.vm_transfer_decrypt_import))
-            var ok = false
+            var failure: String? = null
             try {
                 indexMutex.withLock {
                     val u = unlocked ?: return@withLock
@@ -342,19 +364,21 @@ class VaultViewModel(
                     )
                     persist(u, idx)
                     _notice.value = str(R.string.vm_notice_imported_vlt, name)
-                    ok = true
                 }
             } catch (e: io.vaultx.app.core.crypto.WrongPasswordException) {
-                _error.value = str(R.string.vm_error_wrong_password)
+                failure = str(R.string.vm_error_wrong_password)
+                _error.value = failure
             } catch (e: TransferEngine.TransferCancelledException) {
+                // 用户主动取消 = 结束这个文件,按成功弹出队列(不算失败)
                 _notice.value = str(R.string.vm_notice_import_cancelled)
             } catch (e: Throwable) {
-                _error.value = str(R.string.vm_error_import, e.message)
+                failure = str(R.string.vm_error_import, e.message)
+                _error.value = failure
             } finally {
                 transferBusy.set(false)
                 password.fill('\u0000')
                 _transfer.value = null
-                withContext(Dispatchers.Main) { onDone(ok) }
+                withContext(Dispatchers.Main) { onDone(failure) }
             }
         }
     }

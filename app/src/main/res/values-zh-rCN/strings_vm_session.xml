@@ -9,6 +9,7 @@
     <string name="svm_export_encrypted_busy">加密导出中…</string>
     <string name="svm_exporting">导出中…</string>
     <string name="svm_export_failed">导出失败:%1$s</string>
+    <string name="svm_cancelled">已取消</string>
 
     <!-- PasswordStrength labels -->
     <string name="pw_weak">弱</string>

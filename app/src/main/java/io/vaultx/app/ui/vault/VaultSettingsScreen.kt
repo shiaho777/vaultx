@@ -100,6 +100,11 @@ fun VaultSettingsScreen(
     var decoyDialog by remember { mutableStateOf(false) }
     var disableDecoyConfirm by remember { mutableStateOf(false) }
     var disableBioConfirm by remember { mutableStateOf(false) }
+    // 立即备份:非空 = 待触发系统保存框的文件名
+    var backupExportName by remember { mutableStateOf<String?>(null) }
+    val backupProgressFmt = stringResource(R.string.backup_progress)
+    val backupDoneNotice = stringResource(R.string.backup_done)
+    val backupFailedFmt = stringResource(R.string.backup_failed)
 
     val viaDecoy = unlocked?.viaDecoy == true
     var bioEnabled by remember { mutableStateOf(false) }
@@ -156,14 +161,21 @@ fun VaultSettingsScreen(
             if (!viaDecoy) {
                 val backupTimes by container.settings.backupTimes.collectAsState()
                 val lastBackup = backupTimes[vaultId] ?: 0L
-                SettingRow(
-                    stringResource(R.string.backup_row_title),
-                    if (lastBackup == 0L) stringResource(R.string.backup_row_never)
-                    else stringResource(
-                        R.string.backup_row_last,
-                        java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(lastBackup)),
-                    ),
-                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        SettingRow(
+                            stringResource(R.string.backup_row_title),
+                            if (lastBackup == 0L) stringResource(R.string.backup_row_never)
+                            else stringResource(
+                                R.string.backup_row_last,
+                                java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(lastBackup)),
+                            ),
+                        )
+                    }
+                    TextButton(enabled = busy == null, onClick = { backupExportName = "${meta.name}.fvault" }) {
+                        Text(stringResource(R.string.backup_now))
+                    }
+                }
                 Text(
                     stringResource(R.string.backup_row_hint),
                     style = MaterialTheme.typography.bodySmall,
@@ -350,6 +362,35 @@ fun VaultSettingsScreen(
 
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    // ---------- 立即备份(.fvault 归档导出) ----------
+    val backupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        backupExportName = null
+        if (uri != null) {
+            scope.launch {
+                busy = backupProgressFmt
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        // 与库内操作共用索引锁:导出期间索引形态不被并发切换
+                        container.indexMutexFor(vaultId).withLock {
+                            context.contentResolver.openOutputStream(uri)?.use { out ->
+                                container.vaultArchive.exportVault(vaultId, out)
+                            } ?: throw java.io.IOException("openOutputStream failed")
+                        }
+                    }
+                }.onSuccess {
+                    container.settings.recordBackup(vaultId)
+                    notice = backupDoneNotice
+                }.onFailure { error = String.format(backupFailedFmt, it.message) }
+                busy = null
+            }
+        }
+    }
+    backupExportName?.let { name ->
+        androidx.compose.runtime.LaunchedEffect(name) { backupLauncher.launch(name) }
     }
 
     // ---------- 重命名库 ----------

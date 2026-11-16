@@ -49,6 +49,40 @@ class SessionManagerTest {
     }
 
     @Test
+    fun cancelledImportLeavesNoPartialFile() {
+        try {
+            session.importFile("big.bin", ByteArrayInputStream(ByteArray(300_000))) { true }
+            fail("expected cancellation")
+        } catch (_: SessionCancelledException) {
+        }
+        // 半成品必须已清理,会话目录不留残文件
+        assertTrue(session.listFiles().isEmpty())
+    }
+
+    @Test
+    fun cancelledVltImportLeavesNoPartialFile() {
+        val plain = ByteArray(100_000) { 7 }
+        val enc = ByteArrayOutputStream()
+        io.vaultx.app.core.crypto.PortableCipher.encryptTo("pw".toCharArray(), ByteArrayInputStream(plain), enc, KdfParams.TEST)
+        try {
+            session.importVlt("secret.bin.vlt", ByteArrayInputStream(enc.toByteArray()), "pw".toCharArray()) { true }
+            fail("expected cancellation")
+        } catch (_: SessionCancelledException) {
+        }
+        assertTrue(session.listFiles().isEmpty())
+    }
+
+    @Test
+    fun vltImportStillWorksWithoutCancellation() {
+        val plain = ByteArray(50_000) { 3 }
+        val enc = ByteArrayOutputStream()
+        io.vaultx.app.core.crypto.PortableCipher.encryptTo("pw".toCharArray(), ByteArrayInputStream(plain), enc, KdfParams.TEST)
+        val f = session.importVlt("doc.pdf.vlt", ByteArrayInputStream(enc.toByteArray()), "pw".toCharArray())
+        assertEquals("doc.pdf", f.storedName)
+        assertArrayEquals(plain, session.file(f.storedName).readBytes())
+    }
+
+    @Test
     fun renameAndDelete() {
         session.importFile("old.bin", ByteArrayInputStream(byteArrayOf(9)))
         val renamed = session.rename("old.bin", "new.bin")!!

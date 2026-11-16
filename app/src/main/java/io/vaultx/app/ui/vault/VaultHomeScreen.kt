@@ -922,7 +922,6 @@ fun VaultHomeScreen(
         var err by remember(src.name) { mutableStateOf<String?>(null) }
         // 回调里用到的提示先在组合层捕获,协程回调不能直接调 stringResource
         val errTooShort = stringResource(R.string.vhome_password_min_length)
-        val errImportFailed = stringResource(R.string.vhome_vlt_import_failed)
         AlertDialog(
             onDismissRequest = {
                 // 关掉=放弃这个文件,继续队列下一个
@@ -943,13 +942,13 @@ fun VaultHomeScreen(
                     enabled = transfer == null,
                     onClick = {
                         if (pw.length < 4) { err = errTooShort; return@TextButton }
-                        vm.importVlt(src, pw.toCharArray(), vltImportTarget) { ok ->
-                        // 失败(错密码/格式坏)留在队首并内联提示,可重试或跳过;成功弹下一个
-                        if (ok) {
+                        vm.importVlt(src, pw.toCharArray(), vltImportTarget) { failure ->
+                        // null = 成功/用户取消 → 弹下一个;非空 = 真实失败原因,留在队首可重试或跳过
+                        if (failure == null) {
                             vltImportQueue = vltImportQueue.drop(1)
                             if (vltImportQueue.isEmpty()) vltImportTarget = null
                         } else {
-                            err = errImportFailed
+                            err = failure
                         }
                     }
                 }) { Text(stringResource(R.string.vhome_vlt_import_confirm)) }

@@ -116,6 +116,7 @@ fun LockedHomeScreen(
 
     fun refresh() {
         scope.launch(Dispatchers.IO) {
+            val backups = container.settings.backupTimes.value
             val list = runCatching {
                 container.vaultManager.listVaults().map { meta ->
                     VaultCardInfo(
@@ -125,6 +126,8 @@ fun LockedHomeScreen(
                         // 诱骗库与真库共用磁盘目录:显示物理占用会把隐藏体量泄露给诱骗会话
                         usageBytes = if (meta.hasDecoy) null else container.vaultManager.vaultDiskUsage(meta.vaultId),
                         hasBio = container.vaultManager.readBioWrap(meta.vaultId) != null,
+                        // 备份状态与占用同口径:配置诱骗的库不展示管理信息
+                        lastBackup = if (meta.hasDecoy) null else backups[meta.vaultId] ?: 0L,
                     )
                 }
             }.getOrElse {
@@ -556,12 +559,14 @@ fun LockedHomeScreen(
 /** 别名占位:KeyInvalidatedException 引用。 */
 private typealias BiometricKeystore_KeyInvalidated = io.vaultx.app.core.security.BiometricKeystore.KeyInvalidatedException
 
-/** 卡片展示所需的快照:meta + 条目数 + 磁盘占用 + 是否已配生物识别。 */
+/** 卡片展示所需的快照:meta + 条目数 + 磁盘占用 + 是否已配生物识别 + 备份状态。 */
 private data class VaultCardInfo(
     val meta: VaultMeta,
     val entryCount: Int?,
     val usageBytes: Long?,
     val hasBio: Boolean,
+    /** 0 = 从未备份;>0 = 最近备份 epoch ms。null = 不展示(诱骗配置的库,避免泄露管理信息)。 */
+    val lastBackup: Long?,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -611,6 +616,20 @@ private fun VaultCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // 备份状态:从未备份/超期才提示(正常备份不打扰);有文件的库才值得提醒
+                val lastBackup = info.lastBackup
+                if (lastBackup != null && (entryCount ?: 0) > 0) {
+                    val overdue = System.currentTimeMillis() - lastBackup >
+                        io.vaultx.app.core.state.AppSettings.BACKUP_REMINDER_DAYS * 24 * 3600 * 1000
+                    if (overdue) {
+                        Text(
+                            if (lastBackup == 0L) stringResource(R.string.backup_never_short)
+                            else stringResource(R.string.backup_overdue),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                }
             }
             if (hasBio) {
                 Icon(Icons.Filled.Fingerprint, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.outline)
