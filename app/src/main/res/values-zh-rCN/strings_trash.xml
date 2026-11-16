@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="trash_title">回收站</string>
+    <string name="trash_open">回收站</string>
+    <string name="trash_empty_title">回收站是空的</string>
+    <string name="trash_empty_subtitle">删除的文件会在这里保留 %1$d 天,之后自动彻底删除</string>
+    <string name="trash_retention_hint">删除后保留 %1$d 天,到期自动彻底删除</string>
+    <string name="trash_restore">恢复</string>
+    <string name="trash_delete_forever">彻底删除</string>
+    <string name="trash_empty_action">清空回收站</string>
+    <string name="trash_empty_confirm_title">清空回收站?</string>
+    <string name="trash_empty_confirm_text">全部 %1$d 项将被彻底删除,无法恢复。</string>
+    <string name="trash_purge_confirm_title">彻底删除?</string>
+    <string name="trash_purge_confirm_text">选中的 %1$d 项(含文件夹内容)将被彻底删除,无法恢复。</string>
+    <string name="trash_deleted_at">删除于 %1$s</string>
+    <string name="trash_item_count">%1$d 项</string>
+    <string name="trash_select_all">全选</string>
+    <string name="trash_selected_count">已选 %1$d 项</string>
+    <string name="trash_back">返回</string>
+</resources>

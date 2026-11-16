@@ -43,6 +43,54 @@ class VaultBrowsingTest {
     }
 
     @Test
+    fun trashedEntriesHiddenFromBrowsingAndSearch() {
+        val idx = VaultIndex()
+        val keep = idx.addEntry("keep.txt", MediaKind.OTHER, blobId = "k")
+        val gone = idx.addEntry("gone.txt", MediaKind.OTHER, blobId = "g")
+        idx.entries[1] = gone.copy(trashedAt = 1000L)
+        assertEquals(listOf("keep.txt"), idx.childrenOf(null).map { it.name })
+        assertTrue(idx.search("gone").isEmpty())
+        assertEquals(1, idx.search("txt").size)
+        // find 仍能找到(回收站界面/恢复需要),但浏览不可见
+        assertEquals("gone.txt", idx.find(gone.id)?.name)
+    }
+
+    @Test
+    fun trashedRootsExcludesTrashedDescendants() {
+        val idx = VaultIndex()
+        val folder = idx.addEntry("d", MediaKind.FOLDER)
+        val child = idx.addEntry("in.txt", MediaKind.OTHER, parentId = folder.id)
+        val lone = idx.addEntry("lone.txt", MediaKind.OTHER)
+        val now = 5000L
+        idx.entries.replaceAll {
+            if (it.id in setOf(folder.id, child.id, lone.id)) it.copy(trashedAt = now) else it
+        }
+        // 文件夹+子文件同批标记 → 只展示文件夹顶层;散文件独立成顶层
+        val roots = idx.trashedRoots()
+        assertEquals(setOf("d", "lone.txt"), roots.map { it.name }.toSet())
+        // 子孙级联集仍完整(恢复/彻底删除用)
+        assertEquals(setOf(child.id), idx.descendantIds(folder.id))
+    }
+
+    @Test
+    fun trashedRootsOrphanParentStillShown() {
+        val idx = VaultIndex()
+        val e = idx.addEntry("orphan.txt", MediaKind.OTHER, parentId = "missing-parent")
+        idx.entries[0] = e.copy(trashedAt = 1L)
+        // 父级不存在(损坏/历史数据)→ 仍作为顶层展示,不会凭空消失
+        assertEquals(listOf("orphan.txt"), idx.trashedRoots().map { it.name })
+    }
+
+    @Test
+    fun legacyIndexWithoutTrashFieldReadable() {
+        val idx = VaultIndex().apply { addEntry("a.txt", MediaKind.OTHER) }
+        val json = idx.toJson().replace(Regex(",?\"trashedAt\":null"), "")
+        val back = VaultIndex.fromJson(json)
+        assertNull(back.entries[0].trashedAt)
+        assertEquals(1, back.childrenOf(null).size)
+    }
+
+    @Test
     fun childrenOfPartitionsByParent() {
         val idx = VaultIndex()
         val folder = idx.addEntry("d", MediaKind.FOLDER)

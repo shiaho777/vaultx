@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
@@ -156,6 +157,8 @@ fun VaultHomeScreen(
     val backupDue by vm.backupDue.collectAsState()
     // 本次会话内忽略备份提醒(不持久化:下次进库仍会温和提示)
     var backupDismissed by remember { mutableStateOf(false) }
+    // 回收站视图开关(同 VM 内切换,不走导航栈)
+    var showTrash by remember { mutableStateOf(false) }
 
     val searchFocus = remember { FocusRequester() }
     var searching by remember { mutableStateOf(false) }
@@ -306,13 +309,20 @@ fun VaultHomeScreen(
         }
     }
 
-    // 返回优先级:清选择 → 关搜索 → 上一层目录 → 系统返回
-    BackHandler(enabled = selection.isNotEmpty() || searching || folderStack.isNotEmpty()) {
+    // 返回优先级:退回收站 → 清选择 → 关搜索 → 上一层目录 → 系统返回
+    BackHandler(enabled = showTrash || selection.isNotEmpty() || searching || folderStack.isNotEmpty()) {
         when {
+            showTrash -> showTrash = false
             selection.isNotEmpty() -> vm.clearSelection()
             searching -> { searching = false; vm.setQuery("") }
             else -> vm.navigateUp()
         }
+    }
+
+    // 回收站视图:同 VM 同索引,顶层被删条目列表;恢复/彻底删除后自动刷新
+    if (showTrash) {
+        TrashScreen(vm = vm, onBack = { showTrash = false })
+        return
     }
 
     /** 单点行为统一走这里:选模式切选;文件夹进入;文本预览;OTHER 弹菜单;媒体开查看器。 */
@@ -411,6 +421,9 @@ fun VaultHomeScreen(
                                 },
                             )
                         }
+                    }
+                    IconButton(onClick = { showTrash = true }) {
+                        Icon(Icons.Filled.DeleteOutline, contentDescription = stringResource(R.string.trash_open))
                     }
                     IconButton(onClick = { vm.lockNow() }) {
                         Icon(Icons.Filled.Lock, contentDescription = stringResource(R.string.vhome_lock_now))

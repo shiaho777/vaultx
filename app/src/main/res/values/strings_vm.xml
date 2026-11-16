@@ -29,7 +29,8 @@
     <string name="vm_notice_imported_count">Imported %1$d items</string>
     <string name="vm_notice_imported_skipped">" (skipped %1$d duplicates)"</string>
     <string name="vm_notice_import_cancelled_partial">Cancelled; kept %1$d imported items</string>
-    <string name="vm_notice_deleted_count">Deleted %1$d items</string>
+    <string name="vm_notice_deleted_count">Moved %1$d items to Trash</string>
+    <string name="vm_notice_purged_count">Permanently deleted %1$d items</string>
     <string name="vm_notice_restored_count">Restored %1$d items</string>
     <string name="vm_notice_restored_partial">Restored %1$d items; %2$d could not be restored</string>
     <string name="vm_notice_duplicated">Copy created</string>

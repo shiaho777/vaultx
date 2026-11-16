@@ -24,8 +24,15 @@ data class VaultEntry(
     val mimeType: String? = null,
     /** 是否已生成加密缩略图(thumbs/<blobId>.vlt) */
     val hasThumb: Boolean = false,
+    /**
+     * 回收站标记:非 null = 已删除(值为删除时刻 epoch ms),条目与 blob 保留至
+     * 恢复/彻底删除/保留期(30 天)到期。浏览/搜索一律排除回收站条目。
+     * 带默认值的字段新增,格式版本不变(旧端 ignoreUnknownKeys 可读)。
+     */
+    val trashedAt: Long? = null,
 ) {
     val isFolder: Boolean get() = kind == MediaKind.FOLDER
+    val isTrashed: Boolean get() = trashedAt != null
 }
 
 /**
@@ -42,16 +49,23 @@ data class VaultIndex(
 
     fun find(id: String): VaultEntry? = entries.firstOrNull { it.id == id }
 
-    /** 某文件夹的直接子项(含子文件夹);null = 根目录。 */
+    /** 某文件夹的直接子项(含子文件夹);null = 根目录。回收站条目不出现。 */
     fun childrenOf(folderId: String?): List<VaultEntry> =
-        entries.filter { it.parentId == folderId }
+        entries.filter { it.parentId == folderId && !it.isTrashed }
 
-    /** 全局搜索:跨文件夹/分类,忽略大小写;命中文件夹时点开可直接进入。 */
+    /** 全局搜索:跨文件夹/分类,忽略大小写;回收站条目不命中。 */
     fun search(query: String): List<VaultEntry> {
         val q = query.trim()
         if (q.isEmpty()) return emptyList()
-        return entries.filter { it.name.contains(q, ignoreCase = true) }
+        return entries.filter { !it.isTrashed && it.name.contains(q, ignoreCase = true) }
     }
+
+    /**
+     * 回收站顶层条目:被标记删除、且父级不在回收站(或父级已不存在)。
+     * 文件夹被删时子孙同批标记,只展示顶层避免重复计数。
+     */
+    fun trashedRoots(): List<VaultEntry> =
+        entries.filter { it.isTrashed && (it.parentId == null || find(it.parentId)?.isTrashed != true) }
 
     /** 文件夹的完整子孙条目 id 集(删除/移动时级联用)。父链成环的损坏索引下也保证终止。 */
     fun descendantIds(folderId: String): Set<String> {
@@ -98,6 +112,9 @@ data class VaultIndex(
     companion object {
         /** 当前索引格式版本。带默认值的字段新增不升版本;语义变更才递增。 */
         const val FORMAT_VERSION = 1
+
+        /** 回收站保留期:到期自动彻底删除(进库时惰性清扫)。 */
+        const val TRASH_RETENTION_MS = 30L * 24 * 3600 * 1000
 
         // encodeDefaults:formatVersion 等默认值字段必须落盘,否则版本锚点形同虚设
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }

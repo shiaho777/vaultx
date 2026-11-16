@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="trash_title">Trash</string>
+    <string name="trash_open">Trash</string>
+    <string name="trash_empty_title">Trash is empty</string>
+    <string name="trash_empty_subtitle">Deleted items stay here for %1$d days before being permanently removed</string>
+    <string name="trash_retention_hint">Items are permanently removed %1$d days after deletion</string>
+    <string name="trash_restore">Restore</string>
+    <string name="trash_delete_forever">Delete forever</string>
+    <string name="trash_empty_action">Empty trash</string>
+    <string name="trash_empty_confirm_title">Empty trash?</string>
+    <string name="trash_empty_confirm_text">All %1$d items will be permanently deleted. This cannot be undone.</string>
+    <string name="trash_purge_confirm_title">Delete forever?</string>
+    <string name="trash_purge_confirm_text">%1$d selected items (including folder contents) will be permanently deleted. This cannot be undone.</string>
+    <string name="trash_deleted_at">Deleted %1$s</string>
+    <string name="trash_item_count">%1$d items</string>
+    <string name="trash_select_all">Select all</string>
+    <string name="trash_selected_count">%1$d selected</string>
+    <string name="trash_back">Back</string>
+</resources>

@@ -29,7 +29,8 @@
     <string name="vm_notice_imported_count">已导入 %1$d 项</string>
     <string name="vm_notice_imported_skipped">(跳过 %1$d 个重复)</string>
     <string name="vm_notice_import_cancelled_partial">已取消;保留已导入的 %1$d 项</string>
-    <string name="vm_notice_deleted_count">已删除 %1$d 项</string>
+    <string name="vm_notice_deleted_count">已移入回收站 %1$d 项</string>
+    <string name="vm_notice_purged_count">已彻底删除 %1$d 项</string>
     <string name="vm_notice_restored_count">已恢复 %1$d 项</string>
     <string name="vm_notice_restored_partial">已恢复 %1$d 项,%2$d 项已无法恢复</string>
     <string name="vm_notice_duplicated">已创建副本</string>
