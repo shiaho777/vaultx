@@ -170,6 +170,11 @@ fun VaultHomeScreen(
     var tagMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
     var tagsFor by remember { mutableStateOf<VaultEntry?>(null) }
+    // 横幅退场动画期间保留最后文案(直接读 error/notice 会先变空再收缩)
+    var lastErrorText by remember { mutableStateOf("") }
+    var lastNoticeText by remember { mutableStateOf("") }
+    error?.let { lastErrorText = it }
+    notice?.let { lastNoticeText = it }
 
     val searchFocus = remember { FocusRequester() }
     var searching by remember { mutableStateOf(false) }
@@ -189,8 +194,9 @@ fun VaultHomeScreen(
     // "导入到此处"的目标文件夹(文件夹溢出菜单触发),null = 当前目录
     var importTarget by remember { mutableStateOf<String?>(null) }
     // 导入遇到 .vlt 便携密文:排队逐个收密码解密入库(记住目标文件夹)
-    var vltImportQueue by remember { mutableStateOf<List<TransferEngine.ImportSource>>(emptyList()) }
-    var vltImportTarget by remember { mutableStateOf<String?>(null) }
+    // 队列在 VM 里(组合 remember 会在 Activity 重建时清零,剩余 .vlt 静默丢失)
+    val vltImportQueue by vm.vltQueue.collectAsState()
+    val vltImportTarget by vm.vltTarget.collectAsState()
 
     // 拖拽移动状态:选中态下拖卡片到文件夹格子上
     var dragEntry by remember { mutableStateOf<VaultEntry?>(null) }
@@ -209,7 +215,7 @@ fun VaultHomeScreen(
     }
 
     // 排序结果只在输入变化时重算——拖拽/进度等高频重组不能每帧重排全表
-    val entries = remember(index, folderStack, query, sortBy, sortReversed) { vm.visibleEntries() }
+    val entries = remember(index, folderStack, query, sortBy, sortReversed, starredOnly, tagFilter) { vm.visibleEntries() }
     // 从库设置返回(改名等)时重读 meta;读盘走 IO,不占组合线程
     var metaTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val meta by androidx.compose.runtime.produceState<io.vaultx.app.core.vault.VaultMeta?>(
@@ -229,7 +235,7 @@ fun VaultHomeScreen(
     }
     // 文件夹格子要显示子项数:一次聚合 parentId→count,避免每格全表扫
     val folderCounts = remember(index) {
-        index?.entries?.groupingBy { it.parentId }?.eachCount() ?: emptyMap()
+        index?.entries?.filter { !it.isTrashed }?.groupingBy { it.parentId }?.eachCount() ?: emptyMap()
     }
 
     // SAF 启动器
@@ -243,10 +249,7 @@ fun VaultHomeScreen(
             val sources = uris.map { container.safTransfer.fileSource(it) }
             val (vlt, plain) = sources.partition { it.name.endsWith(".vlt", ignoreCase = true) }
             if (plain.isNotEmpty()) vm.import(plain, intoFolderId = target)
-            if (vlt.isNotEmpty()) {
-                vltImportQueue = vlt
-                vltImportTarget = target
-            }
+            if (vlt.isNotEmpty()) vm.enqueueVlt(vlt, target)
         }
     }
     val importFolderLauncher = rememberLauncherForActivityResult(
@@ -415,7 +418,10 @@ fun VaultHomeScreen(
                     }) {
                         Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = stringResource(R.string.vhome_search))
                     }
-                    IconButton(onClick = { vm.setStarredOnly(!starredOnly) }) {
+                    IconButton(onClick = {
+                        if (!starredOnly) searching = false // 进收藏视图退出搜索态,搜索框不残留
+                        vm.setStarredOnly(!starredOnly)
+                    }) {
                         Icon(
                             if (starredOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
                             contentDescription = stringResource(R.string.tags_starred_only),
@@ -456,14 +462,14 @@ fun VaultHomeScreen(
                                         tint = if (tagFilter != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                                     )
                                 },
-                                onClick = { moreMenu = false; tagMenu = true },
+                                onClick = { moreMenu = false; searching = false; tagMenu = true },
                             )
                         }
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.trash_open)) },
                             leadingIcon = { Icon(Icons.Filled.DeleteOutline, null) },
-                            onClick = { moreMenu = false; showTrash = true },
+                            onClick = { moreMenu = false; vm.clearSelection(); showTrash = true },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.vhome_vault_settings)) },
@@ -594,7 +600,7 @@ fun VaultHomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                error ?: "",
+                                lastErrorText,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 modifier = Modifier.weight(1f).padding(vertical = 8.dp),
@@ -626,7 +632,7 @@ fun VaultHomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                notice ?: "",
+                                lastNoticeText,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.weight(1f).padding(vertical = 8.dp),
@@ -765,6 +771,12 @@ fun VaultHomeScreen(
                                 onDragEnd = {
                                     val target = dropTargetId
                                     if (target != null) vm.moveEntries(selection, target)
+                                    dragEntry = null
+                                    dropTargetId = null
+                                    dragOffset = Offset.Zero
+                                },
+                                onDragAbort = {
+                                    // 手势被系统取消/格子滚出视口:只清拖拽态,不执行移动
                                     dragEntry = null
                                     dropTargetId = null
                                     dragOffset = Offset.Zero
@@ -1161,9 +1173,8 @@ fun VaultHomeScreen(
         val errTooShort = stringResource(R.string.vhome_password_min_length)
         AlertDialog(
             onDismissRequest = {
-                // 关掉=放弃这个文件,继续队列下一个
-                vltImportQueue = vltImportQueue.drop(1)
-                if (vltImportQueue.isEmpty()) vltImportTarget = null
+                // 关掉=放弃这个文件,继续队列下一个(最后一个则连目标一起清)
+                if (vltImportQueue.size <= 1) vm.clearVltQueue() else vm.popVlt()
             },
             title = { Text(stringResource(R.string.vhome_vlt_import_title, src.name)) },
             text = {
@@ -1182,8 +1193,7 @@ fun VaultHomeScreen(
                         vm.importVlt(src, pw.toCharArray(), vltImportTarget) { failure ->
                         // null = 成功/用户取消 → 弹下一个;非空 = 真实失败原因,留在队首可重试或跳过
                         if (failure == null) {
-                            vltImportQueue = vltImportQueue.drop(1)
-                            if (vltImportQueue.isEmpty()) vltImportTarget = null
+                            if (vltImportQueue.size <= 1) vm.clearVltQueue() else vm.popVlt()
                         } else {
                             err = failure
                         }
@@ -1192,8 +1202,7 @@ fun VaultHomeScreen(
             },
             dismissButton = {
                 TextButton(onClick = {
-                    vltImportQueue = vltImportQueue.drop(1)
-                    if (vltImportQueue.isEmpty()) vltImportTarget = null
+                    if (vltImportQueue.size <= 1) vm.clearVltQueue() else vm.popVlt()
                 }) { Text(stringResource(R.string.vhome_skip)) }
             },
         )
@@ -1376,7 +1385,7 @@ private fun EntryListRow(
                 Icon(Icons.Filled.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             } else if (!selectionMode) {
                 IconButton(onClick = onOverflow, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.MoreVert, null, Modifier.size(18.dp))
+                    Icon(Icons.Filled.MoreVert, stringResource(R.string.vhome_more), Modifier.size(18.dp))
                 }
             }
         }
@@ -1415,6 +1424,7 @@ private fun EntryCell(
     onLongClick: () -> Unit,
     onOverflow: () -> Unit,
     modifier: Modifier = Modifier,
+    onDragAbort: () -> Unit = {},
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     var cellWindow by remember { mutableStateOf(Rect.Zero) }
@@ -1429,6 +1439,11 @@ private fun EntryCell(
     // 文件夹格子向父级上报自己的窗口矩形,滚出屏幕时注销(防幽灵落点)
     androidx.compose.runtime.DisposableEffect(entry.id) {
         onDispose { onBoundsChanged?.invoke(null) }
+    }
+    // 被拖格子滚出视口被回收时,手势协程随之取消但不走 onDragCancel——
+    // 父级拖拽态会残留(幽灵影子 + 自动滚动循环不停)。离开组合即中止拖拽。
+    androidx.compose.runtime.DisposableEffect(draggable) {
+        onDispose { if (draggable) onDragAbort() }
     }
     Card(
         modifier = modifier
@@ -1452,7 +1467,7 @@ private fun EntryCell(
                     onDragStart = { onDragStart(cellWindow.topLeft, IntSize(size.width, size.height)) },
                     onDrag = { change, amt -> change.consume(); onDrag(amt) },
                     onDragEnd = { onDragEnd() },
-                    onDragCancel = { onDragEnd() },
+                    onDragCancel = { onDragAbort() },
                 )
             }
             .border(
@@ -1538,7 +1553,7 @@ private fun EntryCell(
                     onClick = onOverflow,
                     modifier = Modifier.align(Alignment.TopEnd).size(28.dp),
                 ) {
-                    Icon(Icons.Filled.MoreVert, null, Modifier.size(18.dp))
+                    Icon(Icons.Filled.MoreVert, stringResource(R.string.vhome_more), Modifier.size(18.dp))
                 }
             }
         }

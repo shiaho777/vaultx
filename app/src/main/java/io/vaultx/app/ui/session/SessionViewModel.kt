@@ -30,6 +30,9 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
     private val cancelFlag = java.util.concurrent.atomic.AtomicBoolean(false)
     fun cancelBusy() { cancelFlag.set(true) }
 
+    /** 传输入口 CAS 占位:快速双击不能并发发起两个传输(与库 VM 同一防护)。 */
+    private val busyGuard = java.util.concurrent.atomic.AtomicBoolean(false)
+
     init { refresh() }
 
     fun refresh() {
@@ -45,6 +48,7 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
      * 重名由 SessionManager.importFile 的 unique 消解)。
      */
     fun import(sources: List<TransferEngine.ImportSource>) {
+        if (!busyGuard.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _busy.value = container.context.getString(R.string.svm_importing)
@@ -54,6 +58,8 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
                 _error.value = container.context.getString(R.string.svm_cancelled)
             } catch (e: Throwable) {
                 _error.value = container.context.getString(R.string.svm_import_failed, e.message)
+            } finally {
+                busyGuard.set(false)
             }
             _busy.value = null
             _files.value = container.sessionManager.listFiles()
@@ -76,6 +82,11 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
      * [onResult]:null = 成功/用户取消;非空 = 失败原因(对话框内联展示)。
      */
     fun importVlt(source: TransferEngine.ImportSource, password: CharArray, onResult: (String?) -> Unit) {
+        if (!busyGuard.compareAndSet(false, true)) {
+            java.util.Arrays.fill(password, 0.toChar())
+            onResult(container.context.getString(R.string.svm_busy))
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _busy.value = container.context.getString(R.string.svm_decrypting)
@@ -95,6 +106,7 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
                 _error.value = failure
             } finally {
                 java.util.Arrays.fill(password, 0.toChar())
+                busyGuard.set(false)
             }
             _busy.value = null
             _files.value = container.sessionManager.listFiles()
@@ -104,6 +116,11 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 加密导出为 .vlt(一次性密码;密码数组由本方法接管,用完清零)。 */
     fun exportVlt(storedName: String, password: CharArray, output: OutputStream, onDone: () -> Unit) {
+        if (!busyGuard.compareAndSet(false, true)) {
+            java.util.Arrays.fill(password, 0.toChar())
+            _error.value = container.context.getString(R.string.svm_busy)
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _busy.value = container.context.getString(R.string.svm_export_encrypted_busy)
@@ -118,6 +135,7 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
                 _error.value = container.context.getString(R.string.svm_export_failed, e.message)
             } finally {
                 java.util.Arrays.fill(password, 0.toChar())
+                busyGuard.set(false)
             }
             _busy.value = null
         }
@@ -125,6 +143,10 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 明文导出(会话文件本来就是明文,直接拷出)。 */
     fun exportPlain(storedName: String, output: OutputStream) {
+        if (!busyGuard.compareAndSet(false, true)) {
+            _error.value = container.context.getString(R.string.svm_busy)
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             cancelFlag.set(false)
             _busy.value = container.context.getString(R.string.svm_exporting)
@@ -144,6 +166,8 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
                 _error.value = container.context.getString(R.string.svm_cancelled)
             } catch (e: Throwable) {
                 _error.value = container.context.getString(R.string.svm_export_failed, e.message)
+            } finally {
+                busyGuard.set(false)
             }
             _busy.value = null
         }
@@ -163,15 +187,16 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 退出即焚。 */
+    /** 退出即焚。覆写是重 IO,放应用级后台域——主线程逐文件 rws 覆写大文件会 ANR。 */
     fun destroySession() {
-        container.sessionManager.destroy()
         _files.value = emptyList()
+        container.appScope.launch(Dispatchers.IO) { container.sessionManager.destroy() }
     }
 
     override fun onCleared() {
         // 任何退出路径(确认退出/系统返回弹栈/锁定清栈)都即焚——
-        // 不能只靠退出确认对话框,系统 back 不会经过它
-        container.sessionManager.destroy()
+        // 不能只靠退出确认对话框,系统 back 不会经过它。
+        // appScope 不随 VM 取消:进程存活期间焚毁必达;进程死亡由冷启动清扫兜底
+        container.appScope.launch(Dispatchers.IO) { container.sessionManager.destroy() }
     }
 }

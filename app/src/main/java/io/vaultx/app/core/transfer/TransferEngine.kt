@@ -92,7 +92,10 @@ class TransferEngine(private val vaultManager: VaultManager) {
         // 名字表按目录预建:判重/重名消解不再逐文件全表扫描(O(n²) → O(n))。
         // 本次导入是索引唯一写者(调用方全程持索引锁),addEntry 后同步登记即始终一致。
         val siblings = HashMap<String?, MutableList<VaultEntry>>()
-        index.entries.forEach { siblings.getOrPut(it.parentId) { mutableListOf() }.add(it) }
+        // 回收站条目不参与判重/重名消解——否则与已删文件同名同大小的新导入被静默跳过,
+        // 且与 uniqueName(经 childrenOf 排除回收站)口径相反
+        index.entries.filter { !it.isTrashed }
+            .forEach { siblings.getOrPut(it.parentId) { mutableListOf() }.add(it) }
         fun addTracked(
             name: String,
             kind: MediaKind,

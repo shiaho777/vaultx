@@ -32,6 +32,9 @@ class SessionManager(private val cacheDir: File) {
 
     private fun sessionDir(): File = File(cacheDir, SESSIONS_DIR)
 
+    /** 全部文件操作串行:查名→建文件非原子,并发导入同名会互相截断覆盖。 */
+    private val ioLock = Any()
+
     private fun kindOf(name: String): MediaKind = when (name.substringAfterLast('.', "").lowercase()) {
         in IMAGE_EXTS -> MediaKind.IMAGE
         in VIDEO_EXTS -> MediaKind.VIDEO
@@ -55,7 +58,7 @@ class SessionManager(private val cacheDir: File) {
     }
 
     /** 导入一个文件进临时空间;重名自动消解。[isCancelled] 命中即中止并清理半成品。 */
-    fun importFile(name: String, input: InputStream, isCancelled: () -> Boolean = { false }): SessionFile {
+    fun importFile(name: String, input: InputStream, isCancelled: () -> Boolean = { false }): SessionFile = synchronized(ioLock) {
         val finalName = uniqueName(sanitizeName(name))
         val target = File(sessionDir().apply { mkdirs() }, finalName)
         try {
@@ -64,7 +67,7 @@ class SessionManager(private val cacheDir: File) {
             secureDelete(target)
             throw e
         }
-        return SessionFile(finalName, target.length(), kindOf(finalName))
+        SessionFile(finalName, target.length(), kindOf(finalName))
     }
 
     /** 分块拷贝,块边界查取消;命中抛 [SessionCancelledException]。 */
@@ -79,17 +82,17 @@ class SessionManager(private val cacheDir: File) {
     }
 
     /** 改名;目标名冲突时仍自动消解,返回新条目。 */
-    fun rename(storedName: String, newName: String): SessionFile? {
+    fun rename(storedName: String, newName: String): SessionFile? = synchronized(ioLock) {
         val src = file(storedName)
         if (!src.isFile || newName.isBlank()) return null
         val clean = sanitizeName(newName)
         val finalName = if (clean == storedName) storedName else uniqueName(clean)
         val dest = File(sessionDir(), finalName)
-        if (!src.renameTo(dest)) return null
-        return SessionFile(finalName, dest.length(), kindOf(finalName))
+        if (!src.renameTo(dest)) null
+        else SessionFile(finalName, dest.length(), kindOf(finalName))
     }
 
-    fun delete(storedName: String) {
+    fun delete(storedName: String) = synchronized(ioLock) {
         secureDelete(file(storedName))
     }
 
@@ -103,7 +106,7 @@ class SessionManager(private val cacheDir: File) {
         output: OutputStream,
         params: KdfParams = KdfParams.DEFAULT,
         isCancelled: () -> Boolean = { false },
-    ) {
+    ) = synchronized(ioLock) {
         val src = file(storedName)
         require(src.isFile) { "no such session file" }
         try {
@@ -122,7 +125,7 @@ class SessionManager(private val cacheDir: File) {
      * @throws WrongPasswordException 密码错
      * @throws PortableFormatException 不是 .vlt 文件
      */
-    fun importVlt(displayName: String, input: InputStream, password: CharArray, isCancelled: () -> Boolean = { false }): SessionFile {
+    fun importVlt(displayName: String, input: InputStream, password: CharArray, isCancelled: () -> Boolean = { false }): SessionFile = synchronized(ioLock) {
         // 去掉 .vlt 后缀作为展示名(大小写都剥)
         val base = sanitizeName(
             if (displayName.endsWith(".vlt", ignoreCase = true)) displayName.dropLast(4) else displayName,
@@ -141,43 +144,53 @@ class SessionManager(private val cacheDir: File) {
         } finally {
             java.util.Arrays.fill(password, 0.toChar())
         }
-        return SessionFile(finalName, target.length(), kindOf(finalName))
+        SessionFile(finalName, target.length(), kindOf(finalName))
     }
 
-    /** 会话即焚:逐文件覆写后清空全部临时文件。 */
-    fun destroy() {
+    /** 会话即焚:逐文件覆写后清空全部临时文件。与导入/导出串行,不会焚到写入一半的文件。 */
+    fun destroy() = synchronized(ioLock) {
         sessionDir().listFiles()?.forEach { secureDelete(it) }
         sessionDir().deleteRecursively()
     }
 
-    fun hasFiles(): Boolean = sessionDir().listFiles()?.any { it.isFile } == true
+    fun hasFiles(): Boolean = synchronized(ioLock) { sessionDir().listFiles()?.any { it.isFile } == true }
 
     /**
      * 覆写后删除:先整文件写零再 unlink。
      * "rws" 模式让每次写都同步落到存储介质,不只是留在页缓存里。
      */
     private fun secureDelete(f: File) {
-        if (f.isFile) {
-            runCatching {
-                var remaining = f.length()
-                if (remaining > 0) {
-                    RandomAccessFile(f, "rws").use { raf ->
-                        val zeros = ByteArray(64 * 1024)
-                        while (remaining > 0) {
-                            val n = minOf(zeros.size.toLong(), remaining).toInt()
-                            raf.write(zeros, 0, n)
-                            remaining -= n
-                        }
+        // 纵深防御:只删会话目录内的普通文件。目录/越界路径一律不碰——
+        // 此前对任何路径无条件 deleteRecursively,配合坏名字可焚毁整个缓存目录
+        val dir = sessionDir().canonicalFile
+        val canonical = f.canonicalFile
+        if (!canonical.isFile || canonical.parentFile != dir) return
+        runCatching {
+            var remaining = canonical.length()
+            if (remaining > 0) {
+                RandomAccessFile(canonical, "rws").use { raf ->
+                    val zeros = ByteArray(64 * 1024)
+                    while (remaining > 0) {
+                        val n = minOf(zeros.size.toLong(), remaining).toInt()
+                        raf.write(zeros, 0, n)
+                        remaining -= n
                     }
                 }
             }
         }
-        f.deleteRecursively()
+        canonical.delete()
     }
 
-    /** 外部提供的名字(SAF 显示名/用户输入)去路径分隔——防 "../" 写出会话目录。 */
-    private fun sanitizeName(name: String): String =
-        name.substringAfterLast('/').substringAfterLast('\\').trim().ifBlank { "unnamed" }
+    /**
+     * 外部提供的名字(SAF 显示名/用户输入)清洗——与 TransferEngine.sanitizeName 同规则:
+     * 路径分隔符与控制字符替换为下划线,"."/".."/空白回落 unnamed。
+     * 此前只取最后一段、放行 "."/"..",恶意名可把目标解析成目录本身。
+     */
+    private fun sanitizeName(name: String): String {
+        val stripped = name.map { if (it == '/' || it == '\\' || it < ' ') '_' else it }
+            .joinToString("").trim()
+        return if (stripped.isBlank() || stripped == "." || stripped == "..") "unnamed" else stripped
+    }
 
     /** "name (2).ext" 消解,与库里同一约定。 */
     private fun uniqueName(name: String): String {

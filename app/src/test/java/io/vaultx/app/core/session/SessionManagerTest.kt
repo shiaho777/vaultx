@@ -49,6 +49,35 @@ class SessionManagerTest {
     }
 
     @Test
+    fun hostileNamesCannotEscapeOrBurnSessionDir() {
+        // "."/".."/带路径与控制字符的名字:必须清洗成会话目录内的普通文件,
+        // 失败清理路径绝不能焚毁会话目录本身或缓存根
+        val hostile = listOf("..", ".", "../evil", "a/../../b", "x\u0000y", "  ")
+        hostile.forEach { name ->
+            val f = session.importFile(name, ByteArrayInputStream("data".toByteArray()))
+            assertTrue(session.file(f.storedName).isFile)
+            session.delete(f.storedName)
+        }
+        // 会话目录与缓存根仍在(此前 ".." 会把整个缓存目录递归删掉)
+        assertTrue(tmp.root.exists())
+        assertTrue(session.listFiles().isEmpty())
+        // 正常文件不受影响
+        session.importFile("ok.txt", ByteArrayInputStream("1".toByteArray()))
+        assertEquals(1, session.listFiles().size)
+    }
+
+    @Test
+    fun hostileVltDisplayNameSanitized() {
+        val plain = "secret".toByteArray()
+        val enc = ByteArrayOutputStream()
+        io.vaultx.app.core.crypto.PortableCipher.encryptTo("pw".toCharArray(), ByteArrayInputStream(plain), enc, KdfParams.TEST)
+        // "..vlt" 剥后缀成 "..":清洗后必须落在会话目录内
+        val f = session.importVlt("..vlt", ByteArrayInputStream(enc.toByteArray()), "pw".toCharArray())
+        assertTrue(session.file(f.storedName).isFile)
+        assertTrue(tmp.root.exists())
+    }
+
+    @Test
     fun cancelledImportLeavesNoPartialFile() {
         try {
             session.importFile("big.bin", ByteArrayInputStream(ByteArray(300_000))) { true }
