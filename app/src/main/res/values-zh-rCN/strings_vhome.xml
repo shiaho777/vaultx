@@ -12,6 +12,8 @@
     <string name="vhome_sort_toggle_direction">再点翻转方向</string>
     <string name="vhome_lock_now">立即锁定</string>
     <string name="vhome_vault_settings">库设置</string>
+    <string name="vhome_more">更多选项</string>
+    <string name="vhome_dismiss_notice">关闭提示</string>
 
     <!-- Import menu -->
     <string name="vhome_import">导入</string>

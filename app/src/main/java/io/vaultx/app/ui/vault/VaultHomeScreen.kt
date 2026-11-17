@@ -72,6 +72,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -167,6 +168,7 @@ fun VaultHomeScreen(
     val tagFilter by vm.tagFilter.collectAsState()
     val allTags = remember(index) { index?.allTags() ?: emptyList() }
     var tagMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
     var tagsFor by remember { mutableStateOf<VaultEntry?>(null) }
 
     val searchFocus = remember { FocusRequester() }
@@ -405,20 +407,69 @@ fun VaultHomeScreen(
                     }
                 },
                 actions = {
+                    // 常驻三键:搜索 / 收藏 / 锁定;低频操作收进更多菜单——
+                    // 8 个图标在窄屏会挤压标题甚至溢出,收纳后任何屏宽都从容
                     IconButton(onClick = {
                         searching = !searching
                         if (!searching) vm.setQuery("")
                     }) {
                         Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = stringResource(R.string.vhome_search))
                     }
-                    IconButton(onClick = { vm.setViewMode(if (viewMode == "GRID") "LIST" else "GRID") }) {
+                    IconButton(onClick = { vm.setStarredOnly(!starredOnly) }) {
                         Icon(
-                            if (viewMode == "GRID") Icons.AutoMirrored.Filled.List else Icons.Filled.GridView,
-                            contentDescription = stringResource(if (viewMode == "GRID") R.string.vhome_view_list else R.string.vhome_view_grid),
+                            if (starredOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = stringResource(R.string.tags_starred_only),
+                            tint = if (starredOnly) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                         )
                     }
-                    IconButton(onClick = { sortMenu = true }) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.vhome_sort))
+                    IconButton(onClick = { vm.lockNow() }) {
+                        Icon(Icons.Filled.Lock, contentDescription = stringResource(R.string.vhome_lock_now))
+                    }
+                    IconButton(onClick = { moreMenu = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.vhome_more))
+                    }
+                    DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(if (viewMode == "GRID") R.string.vhome_view_list else R.string.vhome_view_grid)) },
+                            leadingIcon = {
+                                Icon(if (viewMode == "GRID") Icons.AutoMirrored.Filled.List else Icons.Filled.GridView, null)
+                            },
+                            onClick = { vm.setViewMode(if (viewMode == "GRID") "LIST" else "GRID"); moreMenu = false },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.vhome_sort)) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, null) },
+                            onClick = { moreMenu = false; sortMenu = true },
+                        )
+                        // 标签筛选:库内有标签(或正在筛选)才出现
+                        if (allTags.isNotEmpty() || tagFilter != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (tagFilter != null) stringResource(R.string.tags_filter_active, tagFilter!!)
+                                        else stringResource(R.string.tags_open_filter),
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Filled.Label, null,
+                                        tint = if (tagFilter != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                                    )
+                                },
+                                onClick = { moreMenu = false; tagMenu = true },
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.trash_open)) },
+                            leadingIcon = { Icon(Icons.Filled.DeleteOutline, null) },
+                            onClick = { moreMenu = false; showTrash = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.vhome_vault_settings)) },
+                            leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                            onClick = { moreMenu = false; onSettings() },
+                        )
                     }
                     DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                         SortBy.entries.forEach { s ->
@@ -436,47 +487,20 @@ fun VaultHomeScreen(
                             )
                         }
                     }
-                    // 收藏开关:再点退出收藏视图
-                    IconButton(onClick = { vm.setStarredOnly(!starredOnly) }) {
-                        Icon(
-                            if (starredOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
-                            contentDescription = stringResource(R.string.tags_starred_only),
-                            tint = if (starredOnly) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                    DropdownMenu(expanded = tagMenu, onDismissRequest = { tagMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.tags_filter_all)) },
+                            onClick = { vm.setTagFilter(null); tagMenu = false },
                         )
-                    }
-                    // 标签筛选:库内有标签才显示入口
-                    if (allTags.isNotEmpty() || tagFilter != null) {
-                        IconButton(onClick = { tagMenu = true }) {
-                            Icon(
-                                Icons.Filled.Label,
-                                contentDescription = stringResource(R.string.tags_open_filter),
-                                tint = if (tagFilter != null) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-                            )
-                        }
-                        DropdownMenu(expanded = tagMenu, onDismissRequest = { tagMenu = false }) {
+                        allTags.forEach { t ->
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.tags_filter_all)) },
-                                onClick = { vm.setTagFilter(null); tagMenu = false },
+                                text = { Text(t) },
+                                onClick = { vm.setTagFilter(t); tagMenu = false },
+                                trailingIcon = {
+                                    if (t == tagFilter) Icon(Icons.Filled.Check, null)
+                                },
                             )
-                            allTags.forEach { t ->
-                                DropdownMenuItem(
-                                    text = { Text(t) },
-                                    onClick = { vm.setTagFilter(t); tagMenu = false },
-                                    trailingIcon = {
-                                        if (t == tagFilter) Icon(Icons.Filled.Check, null)
-                                    },
-                                )
-                            }
                         }
-                    }
-                    IconButton(onClick = { showTrash = true }) {
-                        Icon(Icons.Filled.DeleteOutline, contentDescription = stringResource(R.string.trash_open))
-                    }
-                    IconButton(onClick = { vm.lockNow() }) {
-                        Icon(Icons.Filled.Lock, contentDescription = stringResource(R.string.vhome_lock_now))
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.vhome_vault_settings))
                     }
                 },
             )
@@ -554,21 +578,69 @@ fun VaultHomeScreen(
                         }
                     }
                 }
-                error?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                    )
+                // 错误横幅:可手动关闭(此前永久滞留挡内容);进出场动画
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = error != null,
+                    enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                error ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                            )
+                            IconButton(onClick = { vm.clearError() }) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = stringResource(R.string.vhome_dismiss_notice),
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
+                        }
+                    }
                 }
-                notice?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                    )
+                // 成功提示横幅:4 秒自动消退,也可手动关;进出场动画
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = notice != null,
+                    enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                notice ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                            )
+                            IconButton(onClick = { vm.clearNotice() }) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = stringResource(R.string.vhome_dismiss_notice),
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                        }
+                    }
                 }
                 // 删除撤销条:窗口内 blob 仍在,一键整批恢复
                 undo?.let { pd ->
@@ -624,6 +696,7 @@ fun VaultHomeScreen(
                                 onClick = { onEntryTap(entry) },
                                 onLongClick = { longPressHaptic(); vm.toggleSelect(entry.id) },
                                 onOverflow = { overflowFor = entry },
+                                modifier = Modifier.animateItem(),
                             )
                         }
                     }
@@ -669,6 +742,7 @@ fun VaultHomeScreen(
                                 selectionMode = selection.isNotEmpty(),
                                 draggable = selection.isNotEmpty() && entry.id in selection,
                                 dropHighlighted = entry.id == dropTargetId,
+                                modifier = Modifier.animateItem(),
                                 onBoundsChanged = if (entry.isFolder) {
                                     { r -> if (r == null) folderBounds.remove(entry.id) else folderBounds[entry.id] = r }
                                 } else {
@@ -1241,6 +1315,7 @@ private fun EntryListRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOverflow: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     // 列表模式也要懒生成缩略图(VM 内 in-flight 去重,重复调用安全)
     androidx.compose.runtime.LaunchedEffect(entry.id) {
@@ -1253,7 +1328,7 @@ private fun EntryListRow(
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer
         else MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        modifier = modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -1339,6 +1414,7 @@ private fun EntryCell(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOverflow: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     var cellWindow by remember { mutableStateOf(Rect.Zero) }
@@ -1355,7 +1431,7 @@ private fun EntryCell(
         onDispose { onBoundsChanged?.invoke(null) }
     }
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .aspectRatio(0.82f)
             .onGloballyPositioned {

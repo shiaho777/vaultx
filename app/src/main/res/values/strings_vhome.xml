@@ -12,6 +12,8 @@
     <string name="vhome_sort_toggle_direction">Tap again to reverse direction</string>
     <string name="vhome_lock_now">Lock now</string>
     <string name="vhome_vault_settings">Vault settings</string>
+    <string name="vhome_more">More options</string>
+    <string name="vhome_dismiss_notice">Dismiss message</string>
 
     <!-- Import menu -->
     <string name="vhome_import">Import</string>
