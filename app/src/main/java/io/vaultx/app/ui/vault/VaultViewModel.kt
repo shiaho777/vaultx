@@ -66,6 +66,14 @@ class VaultViewModel(
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query
 
+    /** 只看收藏(跨目录)。与搜索/标签筛选互斥,切换时清其他。 */
+    private val _starredOnly = MutableStateFlow(false)
+    val starredOnly: StateFlow<Boolean> = _starredOnly
+
+    /** 标签筛选(跨目录;null = 不筛选)。 */
+    private val _tagFilter = MutableStateFlow<String?>(null)
+    val tagFilter: StateFlow<String?> = _tagFilter
+
     private val _sortBy = MutableStateFlow(
         runCatching { SortBy.valueOf(container.settings.sortBy.value) }.getOrDefault(SortBy.NAME),
     )
@@ -176,7 +184,13 @@ class VaultViewModel(
     fun visibleEntries(): List<VaultEntry> {
         val idx = _index.value ?: return emptyList()
         val q = _query.value
-        val base = if (q.isNotBlank()) idx.search(q) else idx.childrenOf(currentFolderId)
+        val tag = _tagFilter.value
+        val base = when {
+            q.isNotBlank() -> idx.search(q)
+            tag != null -> idx.entriesWithTag(tag)
+            _starredOnly.value -> idx.starredEntries()
+            else -> idx.childrenOf(currentFolderId)
+        }
         return sortEntries(base)
     }
 
@@ -197,7 +211,79 @@ class VaultViewModel(
         return list.sortedWith(base)
     }
 
-    fun setQuery(q: String) { _query.value = q }
+    fun setQuery(q: String) {
+        _query.value = q
+        if (q.isNotBlank()) { _starredOnly.value = false; _tagFilter.value = null }
+    }
+
+    /** 只看收藏开关;开启时退出搜索/标签筛选。 */
+    fun setStarredOnly(on: Boolean) {
+        _starredOnly.value = on
+        if (on) { _query.value = ""; _tagFilter.value = null }
+    }
+
+    /** 标签筛选;null 清除。开启时退出搜索/收藏筛选。 */
+    fun setTagFilter(tag: String?) {
+        _tagFilter.value = tag
+        if (tag != null) { _query.value = ""; _starredOnly.value = false }
+    }
+
+    /** 收藏/取消收藏(批量)。 */
+    fun setStarred(ids: Set<String>, starred: Boolean) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u)
+                var changed = false
+                idx.entries.replaceAll { e ->
+                    if (e.id in ids && e.starred != starred) { changed = true; e.copy(starred = starred) } else e
+                }
+                if (changed) persist(u, idx)
+            }
+        }
+    }
+
+    /** 给条目加标签(归一、去重、限量);已存在则无操作。 */
+    fun addTag(id: String, rawTag: String) {
+        val tag = VaultIndex.normalizeTag(rawTag) ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u)
+                val i = idx.entries.indexOfFirst { it.id == id }
+                if (i < 0) return@withLock
+                val e = idx.entries[i]
+                if (tag in e.tags) return@withLock
+                if (e.tags.size >= VaultIndex.MAX_TAGS_PER_ENTRY) {
+                    _error.value = str(R.string.vm_error_tag_limit, VaultIndex.MAX_TAGS_PER_ENTRY)
+                    return@withLock
+                }
+                idx.entries[i] = e.copy(tags = e.tags + tag)
+                persist(u, idx)
+            }
+        }
+    }
+
+    /** 移除条目上的标签。 */
+    fun removeTag(id: String, tag: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            indexMutex.withLock {
+                val u = unlocked ?: return@withLock
+                val idx = container.vaultManager.loadIndex(u)
+                val i = idx.entries.indexOfFirst { it.id == id }
+                if (i < 0) return@withLock
+                val e = idx.entries[i]
+                if (tag !in e.tags) return@withLock
+                idx.entries[i] = e.copy(tags = e.tags - tag)
+                persist(u, idx)
+                // 被筛掉的标签若已无任何条目,清掉筛选避免空视图困惑
+                if (_tagFilter.value == tag && idx.entries.none { tag in it.tags && !it.isTrashed }) {
+                    _tagFilter.value = null
+                }
+            }
+        }
+    }
     /** 选排序档位:再点当前档 → 翻转方向;换档 → 该档默认方向。 */
     fun setSortBy(s: SortBy) {
         if (s == _sortBy.value) {
@@ -218,7 +304,10 @@ class VaultViewModel(
     fun openFolder(entry: VaultEntry) {
         if (entry.isFolder) {
             _folderStack.value = _folderStack.value + entry
-            _query.value = "" // 从搜索结果点进文件夹时退出搜索态,展示其内容
+            // 从搜索/收藏/标签结果点进文件夹时退出筛选态,展示其内容
+            _query.value = ""
+            _starredOnly.value = false
+            _tagFilter.value = null
         }
     }
 

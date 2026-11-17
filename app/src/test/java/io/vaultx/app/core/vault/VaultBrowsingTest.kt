@@ -138,6 +138,47 @@ class VaultBrowsingTest {
     }
 
     @Test
+    fun starredAndTagsQueriesExcludeTrashed() {
+        val idx = VaultIndex()
+        val a = idx.addEntry("a.jpg", MediaKind.IMAGE, blobId = "a")
+        val b = idx.addEntry("b.jpg", MediaKind.IMAGE, blobId = "b")
+        idx.entries[0] = a.copy(starred = true, tags = listOf("work", "urgent"))
+        idx.entries[1] = b.copy(starred = true, tags = listOf("work"), trashedAt = 1L)
+        // 收藏视图不含回收站条目
+        assertEquals(listOf("a.jpg"), idx.starredEntries().map { it.name })
+        assertEquals(listOf("a.jpg"), idx.entriesWithTag("work").map { it.name })
+        assertEquals(listOf("urgent", "work"), idx.allTags())
+        // 搜索命中标签(不只文件名)
+        assertEquals(listOf("a.jpg"), idx.search("urgent").map { it.name })
+        assertEquals(listOf("a.jpg"), idx.search("WORK").map { it.name })
+    }
+
+    @Test
+    fun tagNormalizationAndLimits() {
+        assertEquals("work stuff", VaultIndex.normalizeTag("  Work   Stuff  "))
+        assertNull(VaultIndex.normalizeTag("   "))
+        assertNull(VaultIndex.normalizeTag(""))
+        assertEquals(VaultIndex.MAX_TAG_LENGTH, VaultIndex.normalizeTag("x".repeat(100))!!.length)
+    }
+
+    @Test
+    fun starredAndTagsSurviveJsonRoundtripAndLegacyReadable() {
+        val idx = VaultIndex()
+        val e = idx.addEntry("a.jpg", MediaKind.IMAGE)
+        idx.entries[0] = e.copy(starred = true, tags = listOf("work"))
+        val back = VaultIndex.fromJson(idx.toJson())
+        assertTrue(back.entries[0].starred)
+        assertEquals(listOf("work"), back.entries[0].tags)
+        // 旧格式(无 starred/tags 字段)仍可读,默认值兜底
+        val legacy = idx.toJson()
+            .replace(Regex(",?\"starred\":(true|false)"), "")
+            .replace(Regex(",?\"tags\":\\[[^]]*]"), "")
+        val legacyBack = VaultIndex.fromJson(legacy)
+        assertTrue(!legacyBack.entries[0].starred)
+        assertTrue(legacyBack.entries[0].tags.isEmpty())
+    }
+
+    @Test
     fun loadPlainIndexReturnsNullWhenEncrypted() {
         val meta = manager.createVault("e", pw("pw1234"), masterGate = true, kdfParams = KdfParams.TEST)
         assertNull(manager.loadPlainIndex(meta.vaultId))

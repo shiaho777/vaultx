@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tags_star">Add to favorites</string>
+    <string name="tags_unstar">Remove from favorites</string>
+    <string name="tags_starred_only">Favorites</string>
+    <string name="tags_manage">Tags…</string>
+    <string name="tags_dialog_title">Tags for \"%1$s\"</string>
+    <string name="tags_add_hint">New tag</string>
+    <string name="tags_add">Add</string>
+    <string name="tags_remove">Remove tag %1$s</string>
+    <string name="tags_none">No tags yet</string>
+    <string name="tags_filter_title">Filter by tag</string>
+    <string name="tags_filter_all">All tags</string>
+    <string name="tags_filter_active">Tag: %1$s</string>
+    <string name="tags_filter_clear">Clear tag filter</string>
+    <string name="tags_starred_title">Favorites</string>
+    <string name="tags_empty_starred_title">No favorites yet</string>
+    <string name="tags_empty_starred_subtitle">Star files from their menu to find them here quickly</string>
+    <string name="tags_empty_tag_title">No files with this tag</string>
+    <string name="tags_open_filter">Filter by tag</string>
+    <string name="vm_error_tag_limit">Tag limit reached (%1$d per item)</string>
+</resources>

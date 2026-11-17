@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tags_star">收藏</string>
+    <string name="tags_unstar">取消收藏</string>
+    <string name="tags_starred_only">收藏</string>
+    <string name="tags_manage">标签…</string>
+    <string name="tags_dialog_title">「%1$s」的标签</string>
+    <string name="tags_add_hint">新标签</string>
+    <string name="tags_add">添加</string>
+    <string name="tags_remove">移除标签 %1$s</string>
+    <string name="tags_none">还没有标签</string>
+    <string name="tags_filter_title">按标签筛选</string>
+    <string name="tags_filter_all">全部标签</string>
+    <string name="tags_filter_active">标签:%1$s</string>
+    <string name="tags_filter_clear">清除标签筛选</string>
+    <string name="tags_starred_title">收藏</string>
+    <string name="tags_empty_starred_title">还没有收藏</string>
+    <string name="tags_empty_starred_subtitle">在文件菜单里点「收藏」,就能在这里快速找到</string>
+    <string name="tags_empty_tag_title">没有带此标签的文件</string>
+    <string name="tags_open_filter">按标签筛选</string>
+    <string name="vm_error_tag_limit">标签数量已达上限(每项 %1$d 个)</string>
+</resources>
