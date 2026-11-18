@@ -39,6 +39,27 @@ import kotlinx.coroutines.launch
 fun AppNav(container: AppContainer, modifier: Modifier = Modifier) {
     val backStack = rememberNavBackStack(Route.ModeSelect)
 
+    // 系统分享待导入:未在任何库内(含未解锁冷启动)时引导去库列表解锁;
+    // 已在解锁库内则由 VaultHomeScreen 直接消费。分享绝不绕过解锁。
+    val pendingShare by container.pendingShareSources.collectAsState()
+    LaunchedEffect(pendingShare) {
+        if (pendingShare.isEmpty()) return@LaunchedEffect
+        if (backStack.none { Route.isVaultScoped(it) } && backStack.lastOrNull() != Route.LockedHome) {
+            backStack.add(Route.LockedHome)
+        }
+    }
+
+    // 长按图标快捷方式:消费一次即路由(新建库 → 库列表;临时空间直达)
+    val pendingShortcut by container.pendingShortcut.collectAsState()
+    LaunchedEffect(pendingShortcut) {
+        val target = pendingShortcut ?: return@LaunchedEffect
+        container.consumePendingShortcut()
+        when (target) {
+            "new-vault" -> if (backStack.lastOrNull() != Route.LockedHome) backStack.add(Route.LockedHome)
+            "session" -> if (backStack.lastOrNull() != Route.SessionHome) backStack.add(Route.SessionHome)
+        }
+    }
+
     // 锁定事件 → 裁剪返回栈
     LaunchedEffect(Unit) {
         container.session.lockEvents.collect { vaultId ->

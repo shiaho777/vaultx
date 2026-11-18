@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tile_lock_all">Lock vaults</string>
+    <string name="tile_locked">Vaults locked</string>
+    <string name="shortcut_new_vault">New vault</string>
+    <string name="shortcut_session">Temporary space</string>
+</resources>

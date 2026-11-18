@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 密码生成器 -->
+    <string name="pwgen_title">Password generator</string>
+    <string name="pwgen_result">Generated password</string>
+    <string name="pwgen_strength">Strength: %1$s</string>
+    <string name="pwgen_length">Length</string>
+    <string name="pwgen_charset">Character sets</string>
+    <string name="pwgen_lowercase">Lowercase (a–z)</string>
+    <string name="pwgen_uppercase">Uppercase (A–Z)</string>
+    <string name="pwgen_digits">Digits (0–9)</string>
+    <string name="pwgen_symbols">Symbols (!@#…)</string>
+    <string name="pwgen_regenerate">Regenerate</string>
+    <string name="pwgen_copy">Copy password</string>
+    <string name="pwgen_copied">Copied — mind clipboard security</string>
+    <string name="pwgen_use">Use this password</string>
+    <string name="pwgen_generate">Generate password</string>
+</resources>

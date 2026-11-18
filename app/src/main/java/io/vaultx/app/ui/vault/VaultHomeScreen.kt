@@ -199,6 +199,20 @@ fun VaultHomeScreen(
     val vltImportQueue by vm.vltQueue.collectAsState()
     val vltImportTarget by vm.vltTarget.collectAsState()
 
+    // 系统分享待导入:只在已解锁会话内消费(consume 原子取走即清空,恰好一次);
+    // 未解锁时 pending 留在容器里,等解锁进库后由本 effect 接手,数据不丢。
+    val pendingShare by container.pendingShareSources.collectAsState()
+    LaunchedEffect(pendingShare, vaultId) {
+        if (pendingShare.isEmpty()) return@LaunchedEffect
+        if (!container.session.isUnlocked(vaultId)) return@LaunchedEffect
+        val sources = container.consumePendingShare()
+        if (sources.isEmpty()) return@LaunchedEffect
+        // 与 importFilesLauncher 相同的分流:.vlt 便携密文进密码队列,其他普通导入
+        val (vlt, plain) = sources.partition { it.name.endsWith(".vlt", ignoreCase = true) }
+        if (plain.isNotEmpty()) vm.import(plain)
+        if (vlt.isNotEmpty()) vm.enqueueVlt(vlt, null)
+    }
+
     // 拖拽移动状态:选中态下拖卡片到文件夹格子上
     var dragEntry by remember { mutableStateOf<VaultEntry?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }

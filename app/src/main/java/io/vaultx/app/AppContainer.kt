@@ -19,6 +19,7 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.getAndUpdate
 
 /**
  * 手动依赖容器:避免 DI 框架(KSP 会增加构建脆弱性)。
@@ -45,6 +46,32 @@ class AppContainer(val context: Context) {
     val safTransfer = SafTransfer(context)
     val sessionManager = SessionManager(context.cacheDir)
     val biometrics = BiometricKeystore()
+
+    /**
+     * 系统分享(ACTION_SEND / SEND_MULTIPLE)暂存的导入源。
+     * 分享进来时应用可能未解锁——这里只暂存,绝不落盘;
+     * 由 VaultHome 在解锁会话内消费([consumePendingShare] 取走即清空,恰好一次)。
+     * 新的分享到达会替换旧的未消费批次(用户最新意图优先)。
+     */
+    private val _pendingShareSources =
+        kotlinx.coroutines.flow.MutableStateFlow<List<TransferEngine.ImportSource>>(emptyList())
+    val pendingShareSources: kotlinx.coroutines.flow.StateFlow<List<TransferEngine.ImportSource>> =
+        _pendingShareSources
+
+    fun setPendingShare(sources: List<TransferEngine.ImportSource>) {
+        if (sources.isNotEmpty()) _pendingShareSources.value = sources
+    }
+
+    /** 原子取走全部待导入分享源并清空;空批次返回空列表。 */
+    fun consumePendingShare(): List<TransferEngine.ImportSource> =
+        _pendingShareSources.getAndUpdate { emptyList() }
+
+    /** 长按图标快捷方式的目标路由("new-vault"/"session");消费一次即清空。 */
+    private val _pendingShortcut = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val pendingShortcut: kotlinx.coroutines.flow.StateFlow<String?> = _pendingShortcut
+
+    fun setPendingShortcut(target: String) { _pendingShortcut.value = target }
+    fun consumePendingShortcut(): String? = _pendingShortcut.getAndUpdate { null }
 
     /**
      * 按库共享的索引互斥锁:VM 的读改写与设置页的索引形态转换(总密码/诱骗)

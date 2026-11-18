@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 中文资源基线:界面文案抽取(stringResource 化)按屏幕分批迁入此处 -->
+    <!-- 系统分享面板里的目标入口名 -->
+    <string name="share_to_vaultx">存入 VaultX</string>
 </resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tile_lock_all">锁定保险库</string>
+    <string name="tile_locked">已锁定</string>
+    <string name="shortcut_new_vault">新建保险库</string>
+    <string name="shortcut_session">临时空间</string>
+</resources>

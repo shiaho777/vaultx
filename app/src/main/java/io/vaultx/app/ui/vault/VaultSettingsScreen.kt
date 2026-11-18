@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +47,7 @@ import io.vaultx.app.R
 import io.vaultx.app.core.vault.VaultMeta
 import io.vaultx.app.ui.components.ConfirmDialog
 import io.vaultx.app.ui.components.PasswordField
+import io.vaultx.app.ui.components.PasswordGeneratorDialog
 import io.vaultx.app.ui.components.formatBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -449,6 +451,18 @@ fun VaultSettingsScreen(
         var pw by remember { mutableStateOf("") }
         var pw2 by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
+        var showGenerator by remember { mutableStateOf(false) }
+        if (showGenerator) {
+            PasswordGeneratorDialog(
+                onDismiss = { showGenerator = false },
+                onUse = { generated ->
+                    pw = generated
+                    pw2 = generated
+                    err = null
+                    showGenerator = false
+                },
+            )
+        }
         AlertDialog(
             onDismissRequest = { changePwDialog = false },
             title = { Text(stringResource(if (viaDecoy) R.string.vset_change_decoy_password else R.string.vset_change_password_title)) },
@@ -456,11 +470,17 @@ fun VaultSettingsScreen(
                 Column(Modifier.imePadding()) {
                     Text(stringResource(R.string.vset_change_password_hint), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
-                    PasswordField(
-                        pw, { pw = it; err = null }, stringResource(R.string.vset_new_password),
-                        supportingText = io.vaultx.app.core.crypto.PasswordStrength.labelRes(io.vaultx.app.core.crypto.PasswordStrength.score(pw))
-                            .takeIf { it != 0 }?.let { String.format(strengthFmt, stringResource(it)) },
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PasswordField(
+                            pw, { pw = it; err = null }, stringResource(R.string.vset_new_password),
+                            modifier = Modifier.weight(1f),
+                            supportingText = io.vaultx.app.core.crypto.PasswordStrength.labelRes(io.vaultx.app.core.crypto.PasswordStrength.score(pw))
+                                .takeIf { it != 0 }?.let { String.format(strengthFmt, stringResource(it)) },
+                        )
+                        IconButton(onClick = { showGenerator = true }) {
+                            Icon(Icons.Filled.Casino, contentDescription = stringResource(R.string.pwgen_generate))
+                        }
+                    }
                     Spacer(Modifier.height(8.dp))
                     PasswordField(pw2, { pw2 = it; err = null }, stringResource(R.string.vset_confirm_new_password), isError = err != null, supportingText = err)
                 }

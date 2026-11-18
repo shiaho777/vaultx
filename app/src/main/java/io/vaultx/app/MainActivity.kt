@@ -1,5 +1,8 @@
 package io.vaultx.app
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -31,6 +34,10 @@ class MainActivity : FragmentActivity() {
 
         val container = (application as VaultXApp).container
 
+        // 系统分享冷启动:暂存导入源,等解锁进库后再消费(绝不绕过解锁)
+        handleShareIntent(intent, container)
+        handleShortcutIntent(intent, container)
+
         // 防截屏开关 → 窗口 flag 实时同步
         lifecycleScope.launch {
             container.settings.flagSecure.collect { enabled ->
@@ -56,4 +63,54 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    /** singleTask:应用已在运行时分享走这里,不再开新实例。 */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val container = (application as VaultXApp).container
+        handleShareIntent(intent, container)
+        handleShortcutIntent(intent, container)
+    }
+
+    /** 长按图标快捷方式:vaultx://shortcut/<target> → 容器暂存,AppNav 消费路由。 */
+    private fun handleShortcutIntent(intent: Intent?, container: AppContainer) {
+        val data = intent?.data ?: return
+        if (data.scheme == "vaultx" && data.host == "shortcut") {
+            data.lastPathSegment?.let { container.setPendingShortcut(it) }
+        }
+    }
+
+    /**
+     * ACTION_SEND 取 EXTRA_STREAM 单 Uri;ACTION_SEND_MULTIPLE 取 Uri 列表。
+     * 只把 Uri 包成 ImportSource 暂存到容器(元数据 query 失败也有兜底名),
+     * 真正的解密/导入由 VaultHome 在已解锁会话里消费。
+     */
+    private fun handleShareIntent(intent: Intent?, container: AppContainer) {
+        if (intent == null) return
+        val uris: List<Uri> = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(streamUri(intent))
+            Intent.ACTION_SEND_MULTIPLE -> streamUris(intent)
+            else -> return
+        }
+        if (uris.isEmpty()) return
+        val sources = uris.map { container.safTransfer.fileSource(it) }
+        container.setPendingShare(sources)
+    }
+
+    private fun streamUri(intent: Intent): Uri? =
+        if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+
+    private fun streamUris(intent: Intent): List<Uri> =
+        if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+        }
 }

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">VaultX</string>
+    <!-- 系统分享面板里的目标入口名 -->
+    <string name="share_to_vaultx">Save to VaultX</string>
 </resources>

@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
@@ -75,6 +76,7 @@ import io.vaultx.app.core.vault.VaultMeta
 import io.vaultx.app.ui.components.ConfirmDialog
 import io.vaultx.app.ui.components.EmptyState
 import io.vaultx.app.ui.components.PasswordField
+import io.vaultx.app.ui.components.PasswordGeneratorDialog
 import io.vaultx.app.ui.components.formatBytes
 import io.vaultx.app.ui.components.pressScale
 import java.text.SimpleDateFormat
@@ -677,7 +679,20 @@ private fun CreateVaultDialog(
     var highSec by remember { mutableStateOf(false) }
     var masterGate by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
+    var showGenerator by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    if (showGenerator) {
+        PasswordGeneratorDialog(
+            onDismiss = { showGenerator = false },
+            onUse = { generated ->
+                pw = generated
+                pw2 = generated
+                err = null
+                showGenerator = false
+            },
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -686,7 +701,12 @@ private fun CreateVaultDialog(
             Column(Modifier.imePadding()) {
                 OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.locked_name)) }, singleLine = true)
                 Spacer(Modifier.height(8.dp))
-                PasswordField(pw, { pw = it; err = null }, stringResource(R.string.locked_password), imeAction = ImeAction.Next)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PasswordField(pw, { pw = it; err = null }, stringResource(R.string.locked_password), imeAction = ImeAction.Next, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { showGenerator = true }) {
+                        Icon(Icons.Filled.Casino, contentDescription = stringResource(R.string.pwgen_generate))
+                    }
+                }
                 if (pw.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     val score = PasswordStrength.score(pw)

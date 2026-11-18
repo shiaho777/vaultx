@@ -86,6 +86,9 @@ class VaultSessionHolder(
 
     fun isUnlocked(vaultId: String): Boolean = synchronized(lock) { map.containsKey(vaultId) }
 
+    /** 是否有任何库处于解锁态(锁定磁贴状态展示用)。 */
+    fun anyUnlocked(): Boolean = synchronized(lock) { map.isNotEmpty() }
+
     /**
      * 进入后台:立即锁定或安排定时锁定。
      * [timeoutSeconds] <= 0 = 立即;否则到点即使仍在前台以外的任何地方,主动清零。

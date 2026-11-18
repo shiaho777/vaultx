@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自适应图标前景:锁形缩至安全区(中央 66dp),钥匙孔用 evenOdd 挖空,
+     彩色层与 monochrome 层共用同一形状。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.8"
+        android:scaleY="0.8">
+        <path
+            android:fillColor="#80D4DA"
+            android:fillType="evenOdd"
+            android:pathData="M54,30 c-9,0 -16,7 -16,16 v8 h-4 a4,4 0 0 0 -4,4 v22 a4,4 0 0 0 4,4 h40 a4,4 0 0 0 4,-4 v-22 a4,4 0 0 0 -4,-4 h-4 v-8 c0,-9 -7,-16 -16,-16 z m0,8 c4.4,0 8,3.6 8,8 v8 h-16 v-8 c0,-4.4 3.6,-8 8,-8 z M54,60 a5,5 0 0 0 -5,5 c0,1.9 1.1,3.6 2.7,4.4 L50,76 h8 l-1.7,-6.6 A5,5 0 0 0 59,65 a5,5 0 0 0 -5,-5 z" />
+    </group>
+</vector>
