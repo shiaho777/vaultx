@@ -74,6 +74,24 @@ class VaultViewModel(
     private val _tagFilter = MutableStateFlow<String?>(null)
     val tagFilter: StateFlow<String?> = _tagFilter
 
+    /**
+     * .vlt 导入队列由 VM 持有(不放组合 remember):Activity 重建时
+     * 组合态清零会让剩余文件静默不导入;VM 在导航栈内按 key 缓存,重建后仍在。
+     */
+    private val _vltQueue = MutableStateFlow<List<TransferEngine.ImportSource>>(emptyList())
+    val vltQueue: StateFlow<List<TransferEngine.ImportSource>> = _vltQueue
+    private val _vltTarget = MutableStateFlow<String?>(null)
+    val vltTarget: StateFlow<String?> = _vltTarget
+
+    fun enqueueVlt(sources: List<TransferEngine.ImportSource>, targetFolder: String?) {
+        if (sources.isEmpty()) return
+        _vltTarget.value = targetFolder
+        _vltQueue.value = _vltQueue.value + sources
+    }
+
+    fun popVlt() { _vltQueue.value = _vltQueue.value.drop(1) }
+    fun clearVltQueue() { _vltQueue.value = emptyList(); _vltTarget.value = null }
+
     private val _sortBy = MutableStateFlow(
         runCatching { SortBy.valueOf(container.settings.sortBy.value) }.getOrDefault(SortBy.NAME),
     )
@@ -728,7 +746,8 @@ class VaultViewModel(
         thumbFlushJob.getAndSet(null)?.cancel()
         runCatching {
             val u = unlocked ?: return@runCatching
-            container.vaultManager.saveIndex(u, container.vaultManager.loadIndex(u))
+            val idx = _index.value ?: return@runCatching
+            container.vaultManager.saveIndex(u, idx)
         }
     }
 
@@ -779,7 +798,7 @@ class VaultViewModel(
                         while (frontier.isNotEmpty()) {
                             // 新条目的 parentId 是新 id,永远不会撞上 frontier 的旧 id——边加边查安全
                             val children = idx.entries
-                                .filter { it.parentId in frontier && it.id !in visited }
+                                .filter { it.parentId in frontier && it.id !in visited && !it.isTrashed }
                             children.forEach { visited += it.id }
                             frontier = children.map { it.id }
                             children.forEach { e ->
@@ -839,8 +858,8 @@ class VaultViewModel(
                 // relPathOf 在导出全程会回溯父链,期间并发的改名/删除不能碰活列表
                 val (targets, idx) = indexMutex.withLock {
                     val i = _index.value ?: container.vaultManager.loadIndex(u)
-                    val doomed = ids.flatMap { i.descendantIds(it) }.toSet() + ids
-                    val t = i.entries.filter { it.id in doomed }
+                    val doomed = ids.flatMap { i.descendantIds(it, includeTrashed = false) }.toSet() + ids
+                    val t = i.entries.filter { it.id in doomed && !it.isTrashed }
                     t to VaultIndex(entries = ArrayList(i.entries), updatedAt = i.updatedAt)
                 }
                 val res = container.transferEngine.exportEntries(
@@ -908,11 +927,13 @@ class VaultViewModel(
         while (true) {
             val prev = thumbFlushJob.get()
             val job = viewModelScope.launch(Dispatchers.IO) {
-                prev?.join() // 串行链:上一轮防抖结束才开始本轮计时
                 kotlinx.coroutines.delay(THUMB_FLUSH_DEBOUNCE_MS)
                 flushThumbsNow()
             }
-            if (thumbFlushJob.compareAndSet(prev, job)) return
+            if (thumbFlushJob.compareAndSet(prev, job)) {
+                prev?.cancel() // 真防抖:取消上一轮重新计时(此前 join 成串行链,滚动中仍周期写盘)
+                return
+            }
             job.cancel()
         }
     }
@@ -920,7 +941,10 @@ class VaultViewModel(
     private suspend fun flushThumbsNow() {
         indexMutex.withLock {
             val u = unlocked ?: return@withLock
-            runCatching { container.vaultManager.saveIndex(u, container.vaultManager.loadIndex(u)) }
+            // 必须存内存态:loadIndex 返回管理器缓存快照,不含 ensureThumb 刚打的
+            // 标记——重读再存等于写回旧索引,hasThumb 永远落不了盘、缩略图反复重建
+            val idx = _index.value ?: return@withLock
+            runCatching { container.vaultManager.saveIndex(u, idx) }
         }
     }
 

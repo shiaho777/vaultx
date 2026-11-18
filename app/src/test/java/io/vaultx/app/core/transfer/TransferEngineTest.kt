@@ -321,6 +321,35 @@ class TransferEngineTest {
     }
 
     @Test
+    fun importDedupIgnoresTrashedEntries() {
+        val index = VaultIndex()
+        val data = ByteArray(100) { 1 }
+        engine.import(unlocked, listOf(MemFile("a.jpg", data)), null, index)
+        // 把已导入条目移入回收站
+        index.entries[0] = index.entries[0].copy(trashedAt = 1L)
+        // 同名同大小再导入:不能因回收站里的旧条目被误判重复跳过
+        val r = engine.import(unlocked, listOf(MemFile("a.jpg", data)), null, index)
+        assertEquals(1, r.imported)
+        assertEquals(0, r.skipped)
+        // 活跃视图里只有一个 a.jpg,重名消解不避让回收站
+        assertEquals(listOf("a.jpg"), index.childrenOf(null).map { it.name })
+    }
+
+    @Test
+    fun descendantIdsCanExcludeTrashedSubtree() {
+        val index = VaultIndex()
+        val folder = index.addEntry("d", MediaKind.FOLDER)
+        val live = index.addEntry("live.txt", MediaKind.OTHER, parentId = folder.id)
+        val gone = index.addEntry("gone.txt", MediaKind.OTHER, parentId = folder.id)
+        val sub = index.addEntry("sub", MediaKind.FOLDER, parentId = gone.id)
+        index.entries.replaceAll { if (it.id == gone.id) it.copy(trashedAt = 1L) else it }
+        // 默认含回收站(删除/恢复级联用)
+        assertEquals(setOf(live.id, gone.id, sub.id), index.descendantIds(folder.id))
+        // 排除模式:已删条目及其子树都不出现(复制/导出用)
+        assertEquals(setOf(live.id), index.descendantIds(folder.id, includeTrashed = false))
+    }
+
+    @Test
     fun exportReportsProgress() {
         val index = VaultIndex()
         engine.import(unlocked, listOf(MemFile("a.txt", "1".toByteArray())), null, index)

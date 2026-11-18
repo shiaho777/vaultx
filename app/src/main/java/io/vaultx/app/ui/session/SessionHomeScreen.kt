@@ -293,8 +293,9 @@ fun SessionHomeScreen(
 
     // ---------- .vlt 导入密码(队列逐个处理) ----------
     vltQueue.firstOrNull()?.let { uri ->
-        var pw by remember { mutableStateOf("") }
-        var err by remember { mutableStateOf<String?>(null) }
+        // 按 uri 键控:队列换文件时重置密码/错误,不串台到下一个对话框
+        var pw by remember(uri) { mutableStateOf("") }
+        var err by remember(uri) { mutableStateOf<String?>(null) }
         val thisFile = stringResource(R.string.sess_this_file)
         AlertDialog(
             onDismissRequest = { vltQueue = vltQueue.drop(1) },
@@ -452,7 +453,7 @@ private fun SessionFileRow(file: SessionFile, onClick: () -> Unit, onMenu: () ->
                 )
             }
             IconButton(onClick = onMenu) {
-                Icon(Icons.Filled.MoreVert, null)
+                Icon(Icons.Filled.MoreVert, stringResource(R.string.vhome_more))
             }
         }
     }

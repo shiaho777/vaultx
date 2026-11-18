@@ -67,7 +67,7 @@ fun VideoPlayerScreen(
                     val idx = container.vaultManager.loadIndex(u)
                     val me = idx.find(entryId)
                     idx.entries
-                        .filter { it.kind == MediaKind.VIDEO && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
+                        .filter { it.kind == MediaKind.VIDEO && !it.isFolder && !it.isTrashed && it.parentId == me?.parentId && it.blobId != null }
                         .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
                 }.getOrDefault(emptyList())
             } ?: emptyList()
@@ -120,7 +120,9 @@ fun VideoPlayerScreen(
         }
     }
 
-    DisposableEffect(Unit) {
+    // 按 player 键控:首帧 player=null 时注册的 Unit 效应会把 null 闭包捕获到底,
+    // 列表到位后创建的播放器退出时永不释放(泄漏/退出后继续播)
+    DisposableEffect(player) {
         onDispose { player?.release() }
     }
 

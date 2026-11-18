@@ -87,13 +87,19 @@ data class VaultIndex(
     fun trashedRoots(): List<VaultEntry> =
         entries.filter { it.isTrashed && (it.parentId == null || find(it.parentId)?.isTrashed != true) }
 
-    /** 文件夹的完整子孙条目 id 集(删除/移动时级联用)。父链成环的损坏索引下也保证终止。 */
-    fun descendantIds(folderId: String): Set<String> {
+    /**
+     * 文件夹的完整子孙条目 id 集(删除/移动时级联用)。父链成环的损坏索引下也保证终止。
+     * [includeTrashed] = false 跳过回收站条目及其子树——复制/导出用:
+     * 否则已删文件会在副本里"复活"、随导出泄出。删除/恢复用默认 true。
+     */
+    fun descendantIds(folderId: String, includeTrashed: Boolean = true): Set<String> {
         val out = LinkedHashSet<String>()
         var frontier = listOf(folderId)
         while (frontier.isNotEmpty()) {
             // 已收录的 id 不再扩展——否则 A→B→A 环会无限扩散
-            val next = entries.filter { it.parentId in frontier && it.id !in out }
+            val next = entries.filter {
+                it.parentId in frontier && it.id !in out && (includeTrashed || !it.isTrashed)
+            }
             next.forEach { out.add(it.id) }
             frontier = next.map { it.id }
         }

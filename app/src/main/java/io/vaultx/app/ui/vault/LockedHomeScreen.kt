@@ -122,7 +122,7 @@ fun LockedHomeScreen(
                     VaultCardInfo(
                         meta = meta,
                         entryCount = container.vaultManager.loadPlainIndex(meta.vaultId)
-                            ?.entries?.count { !it.isFolder },
+                            ?.entries?.count { !it.isFolder && !it.isTrashed },
                         // 诱骗库与真库共用磁盘目录:显示物理占用会把隐藏体量泄露给诱骗会话
                         usageBytes = if (meta.hasDecoy) null else container.vaultManager.vaultDiskUsage(meta.vaultId),
                         hasBio = container.vaultManager.readBioWrap(meta.vaultId) != null,
@@ -487,9 +487,12 @@ fun LockedHomeScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    container.vaultManager.renameVault(meta.vaultId, name)
+                    val newName = name
                     renameTarget = null
-                    refresh()
+                    scope.launch(Dispatchers.IO) {
+                        runCatching { container.vaultManager.renameVault(meta.vaultId, newName) }
+                        refresh()
+                    }
                 }) { Text(stringResource(R.string.locked_confirm)) }
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text(stringResource(R.string.locked_cancel)) } },
@@ -504,11 +507,14 @@ fun LockedHomeScreen(
             confirmText = stringResource(R.string.locked_delete_forever),
             danger = true,
             onConfirm = {
-                container.session.lock(meta.vaultId)
-                container.biometrics.deleteKey(meta.vaultId)
-                container.vaultManager.deleteVault(meta.vaultId)
                 deleteTarget = null
-                refresh()
+                // 先同步锁会话(内存密钥即刻失效),重 IO 放后台
+                container.session.lock(meta.vaultId)
+                scope.launch(Dispatchers.IO) {
+                    runCatching { container.biometrics.deleteKey(meta.vaultId) }
+                    runCatching { container.vaultManager.deleteVault(meta.vaultId) }
+                    refresh()
+                }
             },
             onDismiss = { deleteTarget = null },
         )

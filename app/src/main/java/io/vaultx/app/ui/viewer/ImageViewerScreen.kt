@@ -78,7 +78,7 @@ fun ImageViewerScreen(
                     val idx = container.vaultManager.loadIndex(u)
                     val me = idx.find(entryId)
                     idx.entries
-                        .filter { it.kind == MediaKind.IMAGE && !it.isFolder && it.parentId == me?.parentId && it.blobId != null }
+                        .filter { it.kind == MediaKind.IMAGE && !it.isFolder && !it.isTrashed && it.parentId == me?.parentId && it.blobId != null }
                         .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
                 }.getOrDefault(emptyList())
             } ?: emptyList()

@@ -30,9 +30,21 @@ class BiometricKeystore {
      * (不设有效期的密钥每次使用都必须认证)——开启流程也走 BiometricPrompt。
      */
     fun cryptoObjectForWrap(vaultId: String): BiometricPrompt.CryptoObject {
-        val key = getOrCreateKey(vaultId)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key)
+        try {
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(vaultId))
+        } catch (e: Exception) {
+            // 新录指纹/生物数据变更会使旧密钥永久失效:删掉重建,与解锁路径同一回退口径。
+            // 只兜底失效类异常;其他异常(如 Keystore 不可用)原样抛出
+            if (e is android.security.keystore.KeyPermanentlyInvalidatedException ||
+                e is java.security.InvalidKeyException
+            ) {
+                deleteKey(vaultId)
+                cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(vaultId))
+            } else {
+                throw e
+            }
+        }
         return BiometricPrompt.CryptoObject(cipher)
     }
 

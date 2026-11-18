@@ -10,6 +10,7 @@
     <string name="svm_exporting">Exporting…</string>
     <string name="svm_export_failed">Export failed: %1$s</string>
     <string name="svm_cancelled">Cancelled</string>
+    <string name="svm_busy">A transfer is already in progress; wait or cancel it first</string>
 
     <!-- PasswordStrength labels -->
     <string name="pw_weak">Weak</string>
