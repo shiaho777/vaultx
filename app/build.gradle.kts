@@ -107,6 +107,7 @@ dependencies {
     implementation(libs.coil.core)
     implementation(libs.tink.android)
     implementation(libs.bcprov)
+    implementation(libs.lazysodium.android)
     implementation(libs.biometric)
     implementation(libs.fragment)
     implementation(libs.kotlinx.serialization.json)

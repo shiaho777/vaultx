@@ -297,6 +297,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
         val total = entries.size
         val throttle = Throttle()
         val byteThrottle = Throttle()
+        val byId = index.entries.associateBy { it.id }
         var done = 0
         try {
             var exported = 0
@@ -306,7 +307,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
                 onFileStart(entry.name)
                 if (entry.isFolder) {
                     // 空文件夹也要在导出端出现,否则目录结构丢信息;建目录失败计入失败名
-                    runCatching { sinkFactory.ensureDir(relPathOf(entry, index)) }
+                    runCatching { sinkFactory.ensureDir(relPathOf(entry, byId)) }
                         .onFailure { failed += entry.name }
                     done++
                     throttle.emit(done, total, onProgress)
@@ -319,7 +320,7 @@ class TransferEngine(private val vaultManager: VaultManager) {
                     throttle.emit(done, total, onProgress)
                     continue
                 }
-                val rel = relPathOf(entry, index)
+                val rel = relPathOf(entry, byId)
                 val sink = try {
                     sinkFactory.create(rel, entry.mimeType)
                 } catch (e: Exception) {
@@ -359,13 +360,16 @@ class TransferEngine(private val vaultManager: VaultManager) {
         }
     }
 
-    /** 导出相对路径:folder/sub/name.ext(目录链从索引回溯)。 */
-    private fun relPathOf(entry: VaultEntry, index: VaultIndex): String {
+    /**
+     * 导出相对路径:folder/sub/name.ext(目录链从索引回溯)。
+     * [byId] 预建 id→entry 映射:逐条目 index.find 线性扫是 O(n²),万级导出分钟级卡顿。
+     */
+    private fun relPathOf(entry: VaultEntry, byId: Map<String, VaultEntry>): String {
         val parts = mutableListOf(sanitizeName(entry.name))
         val seen = hashSetOf(entry.id)
         var cur = entry.parentId
         while (cur != null && cur !in seen) {
-            val folder = index.find(cur) ?: break
+            val folder = byId[cur] ?: break
             seen.add(folder.id)
             parts.add(0, sanitizeName(folder.name))
             cur = folder.parentId

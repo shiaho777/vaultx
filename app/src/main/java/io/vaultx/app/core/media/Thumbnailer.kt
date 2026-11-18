@@ -20,6 +20,9 @@ class Thumbnailer(private val vaultManager: VaultManager) {
     companion object {
         /** 视频抽帧探测点(微秒):1 秒处——0 点常是黑场/片头渐隐帧。 */
         private const val FRAME_PROBE_US = 1_000_000L
+
+        /** 单遍解码的明文内存缓冲上限;超过退回流式多遍,防大图撑爆堆。 */
+        private const val MAX_INMEM_BYTES = 32L * 1024 * 1024
     }
 
     /** 生成缩略图 bytes;不支持的类型返回 null。 */
@@ -30,25 +33,34 @@ class Thumbnailer(private val vaultManager: VaultManager) {
     }
 
     private fun imageThumb(unlocked: UnlockedVault, blobId: String): ByteArray? = runCatching {
-        // 两遍流:先读 EXIF 方向 + bounds 定采样率,再按采样解码——
-        // 直接 decodeStream 会把全尺寸位图读进内存,亿级像素照片必 OOM
+        // 单遍解密:密文只解一次进内存缓冲,EXIF/bounds/采样解码三次复用同一份字节。
+        // 此前三遍全流解密 = 3 倍 AES 开销;直接 decodeStream 全尺寸位图又会 OOM,
+        // 采样解码(inSampleSize)保证位图内存只与缩略图尺寸相关。
+        // 超大图(>32MB 明文)不进内存,退回两遍流式解码兜底。
+        val plain: ByteArray? = if (vaultManager.blobSize(unlocked.vaultId, blobId) <= MAX_INMEM_BYTES) {
+            vaultManager.openBlobStream(unlocked, blobId).use { it.readBytes() }
+        } else null
+
+        fun openDec(): java.io.InputStream =
+            plain?.inputStream() ?: vaultManager.openBlobStream(unlocked, blobId)
+
         var orientation = androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        vaultManager.openBlobStream(unlocked, blobId).use { dec ->
+        openDec().use { dec ->
             val exif = runCatching { androidx.exifinterface.media.ExifInterface(dec) }.getOrNull()
             orientation = exif?.getAttributeInt(
                 androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
                 androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL,
             ) ?: androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
         }
-        vaultManager.openBlobStream(unlocked, blobId).use { dec ->
+        openDec().use { dec ->
             BitmapFactory.decodeStream(dec, null, bounds)
         }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         val opts = BitmapFactory.Options().apply {
             inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, maxEdge)
         }
-        val bmp = vaultManager.openBlobStream(unlocked, blobId).use { dec ->
+        val bmp = openDec().use { dec ->
             BitmapFactory.decodeStream(dec, null, opts)
         } ?: return null
         val rotated = rotateForExif(bmp, orientation)
@@ -90,8 +102,17 @@ class Thumbnailer(private val vaultManager: VaultManager) {
         try {
             retriever.setDataSource(VaultMediaDataSource(vaultManager, unlocked, blobId))
             // 音频:优先内嵌封面(embeddedPicture);视频:抽 1s 处帧
-            // (首帧常是黑场),拿不到再退回首帧
-            retriever.embeddedPicture?.let { return@runCatching it }
+            // (首帧常是黑场),拿不到再退回首帧。
+            // 封面必须解码+缩放+重压:原始内嵌图可达数 MB,直接落盘会拖慢网格
+            retriever.embeddedPicture?.let { pic ->
+                val bmp = BitmapFactory.decodeByteArray(pic, 0, pic.size) ?: return@runCatching pic
+                val scaled = scaleDown(bmp)
+                if (scaled !== bmp) bmp.recycle()
+                val out = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, 82, out)
+                scaled.recycle()
+                return@runCatching out.toByteArray()
+            }
             val frame = retriever.getFrameAtTime(
                 FRAME_PROBE_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
             ) ?: retriever.frameAtTime

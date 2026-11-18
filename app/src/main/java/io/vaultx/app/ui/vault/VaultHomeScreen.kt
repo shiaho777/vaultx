@@ -214,8 +214,9 @@ fun VaultHomeScreen(
         else selection + selection.flatMap { index!!.descendantIds(it) }
     }
 
-    // 排序结果只在输入变化时重算——拖拽/进度等高频重组不能每帧重排全表
-    val entries = remember(index, folderStack, query, sortBy, sortReversed, starredOnly, tagFilter) { vm.visibleEntries() }
+    // 过滤+排序在 VM 的 Default 线程合并流里完成(搜索词已防抖),
+    // 组合层只收集结果——拖拽/进度等高频重组不再触发全表重排
+    val entries by vm.visible.collectAsState()
     // 从库设置返回(改名等)时重读 meta;读盘走 IO,不占组合线程
     var metaTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val meta by androidx.compose.runtime.produceState<io.vaultx.app.core.vault.VaultMeta?>(

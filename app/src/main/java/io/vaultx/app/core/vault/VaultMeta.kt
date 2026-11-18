@@ -38,6 +38,13 @@ data class VaultMeta(
     val kdfDecoyMemoryKiB: Int = 0,
     val kdfDecoyIterations: Int = 0,
     val kdfDecoyParallelism: Int = 0,
+    /**
+     * 密文分块大小(Tink ciphertext segment)。旧文件无此字段 → 4096(初始格式)。
+     * 新库写 256KB;读取永远按库内记录值,新旧库互不干扰。
+     * 带默认值的字段新增,格式版本不变(旧端 ignoreUnknownKeys 可读,
+     * 但旧端写新库会用错分块——fromJson 对 chunkSize>4096 的库要求新端)。
+     */
+    val chunkSize: Int = io.vaultx.app.core.crypto.TinkStreaming.CIPHERTEXT_SEGMENT_SIZE,
 ) {
 
     val hasDecoy: Boolean get() = saltDecoy != null && wrappedVmkDecoy != null
@@ -106,6 +113,7 @@ data class VaultMeta(
             wrappedVmk = enc.encodeToString(wrappedVmk),
             masterGate = masterGate,
             indexEncrypted = masterGate,
+            chunkSize = io.vaultx.app.core.crypto.TinkStreaming.NEW_VAULT_SEGMENT_SIZE,
         )
 
         fun fromJson(text: String): VaultMeta {
@@ -114,7 +122,12 @@ data class VaultMeta(
             require(meta.formatVersion <= FORMAT_VERSION) {
                 "unsupported vault format version ${meta.formatVersion} (max $FORMAT_VERSION); upgrade the app"
             }
-            return meta
+            // 恶意 .fvault 可构造任意 chunkSize:钳到合法域(与 TinkStreaming 同口径)
+            val seg = meta.chunkSize.coerceIn(
+                io.vaultx.app.core.crypto.TinkStreaming.CIPHERTEXT_SEGMENT_SIZE,
+                16 * 1024 * 1024,
+            )
+            return if (seg == meta.chunkSize) meta else meta.copy(chunkSize = seg)
         }
     }
 }

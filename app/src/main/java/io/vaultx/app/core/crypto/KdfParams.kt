@@ -3,8 +3,10 @@ package io.vaultx.app.core.crypto
 /**
  * Argon2id 参数档。存进库头(meta.vault),以后可调——解锁时可透明升级(只升不降)。
  *
- * [DEFAULT] 32 MiB:移动端内存约束下的稳妥档(OWASP 建议下限 ~19 MiB 之上)。
- * [HIGH_SECURITY] 64 MiB:建库时可选的增强档,派生更慢、抗离线爆破更强。
+ * [DEFAULT] 64 MiB / t3 / p2:native libsodium 加持下的新标准档,
+ * 远超 OWASP 下限(19 MiB/t2/p1),中端机解锁仍在亚秒级。
+ * [HIGH_SECURITY] 128 MiB / t4 / p2:建库时可选的增强档,抗离线爆破再翻倍。
+ * 旧库按头内旧参数解锁,首次解锁自动透明升级到 DEFAULT(零重加密)。
  */
 data class KdfParams(
     val memoryKiB: Int,
@@ -19,8 +21,8 @@ data class KdfParams(
             parallelism >= other.parallelism
 
     companion object {
-        val DEFAULT = KdfParams(memoryKiB = 32 * 1024, iterations = 3, parallelism = 1)
-        val HIGH_SECURITY = KdfParams(memoryKiB = 64 * 1024, iterations = 4, parallelism = 1)
+        val DEFAULT = KdfParams(memoryKiB = 64 * 1024, iterations = 3, parallelism = 2)
+        val HIGH_SECURITY = KdfParams(memoryKiB = 128 * 1024, iterations = 4, parallelism = 2)
         /** 单测专用低参数,跑得快。 */
         val TEST = KdfParams(memoryKiB = 8 * 1024, iterations = 1, parallelism = 1)
     }

@@ -15,9 +15,11 @@ import java.util.Arrays
 class VaultCrypto internal constructor(
     /** 主密钥,只在本类生命周期内存在于内存,锁定时 [zeroize]。 */
     val vmk: ByteArray,
+    /** 密文分块大小:必须与库内数据写入时一致(meta.vault 记录;旧库默认 4096)。 */
+    val segmentSize: Int = TinkStreaming.CIPHERTEXT_SEGMENT_SIZE,
 ) {
 
-    private val streamingAead = TinkStreaming.fromRawKey(vmk)
+    private val streamingAead = TinkStreaming.fromRawKey(vmk, segmentSize)
 
     /**
      * 锁定后拒绝一切密码学操作:Tink 的 keyset 内部持有 VMK 副本,

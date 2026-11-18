@@ -177,7 +177,7 @@ fun LockedHomeScreen(
                             unlockTarget = meta
                             return
                         }
-                        onUnlocked(UnlockedVault(meta, VaultCrypto(vmk), viaDecoy = false))
+                        onUnlocked(UnlockedVault(meta, VaultCrypto(vmk, meta.chunkSize), viaDecoy = false))
                     }
 
                     override fun onAuthenticationError(code: Int, msg: CharSequence) {

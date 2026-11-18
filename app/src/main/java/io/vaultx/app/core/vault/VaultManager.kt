@@ -244,7 +244,7 @@ class VaultManager(private val rootDir: File) {
         val kek = Argon2idKdf.derive(password, salt, params)
         try {
             val vmk = KeyWrap.unwrap(kek, wrapped)
-            return UnlockedVault(meta, VaultCrypto(vmk), viaDecoy)
+            return UnlockedVault(meta, VaultCrypto(vmk, meta.chunkSize), viaDecoy)
         } finally {
             Arrays.fill(kek, 0.toByte())
         }
@@ -449,7 +449,7 @@ class VaultManager(private val rootDir: File) {
             val wrappedDecoy = KeyWrap.wrap(kek, decoyVmk)
             Arrays.fill(kek, 0.toByte())
 
-            val decoyCrypto = VaultCrypto(decoyVmk)
+            val decoyCrypto = VaultCrypto(decoyVmk, meta.chunkSize)
             writeAtomic(
                 indexDecoyEncFile(vaultId),
                 decoyCrypto.encryptBlock(VaultIndex(updatedAt = now).toJson().toByteArray(Charsets.UTF_8), VaultCrypto.decoyIndexAd(vaultId)),

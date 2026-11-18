@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -55,6 +56,13 @@ class VaultViewModel(
 
     private val _index = MutableStateFlow<VaultIndex?>(null)
     val index: StateFlow<VaultIndex?> = _index
+
+    /**
+     * 可见条目列表(过滤+排序后)。计算在 Default 线程的合并流里完成——
+     * 万级条目的 Collator 排序不再占组合线程,拖拽/滚动帧率与库规模解耦。
+     */
+    private val _visible = MutableStateFlow<List<VaultEntry>>(emptyList())
+    val visible: StateFlow<List<VaultEntry>> = _visible
 
     /** 当前所在文件夹链(空 = 根目录)。 */
     private val _folderStack = MutableStateFlow<List<VaultEntry>>(emptyList())
@@ -152,6 +160,18 @@ class VaultViewModel(
 
     init {
         refresh()
+        // 过滤+排序在 Default 线程合并计算:任何输入变化自动重算,
+        // conflate 丢弃中间帧——连续击键/快速切换只算最新一次
+        viewModelScope.launch(Dispatchers.Default) {
+            kotlinx.coroutines.flow.combine(
+                listOf(
+                    _index, _folderStack, _appliedQuery, _tagFilter,
+                    _starredOnly, _sortBy, _sortReversed,
+                ),
+            ) { visibleEntries() }
+                .conflate()
+                .collect { _visible.value = it }
+        }
         // 孤儿 blob 清扫(取消/崩溃残迹)。诱骗库跳过:两套索引各只覆盖自己的 blob,
         // 单边清扫会误删另一边的数据
         viewModelScope.launch(Dispatchers.IO) {
@@ -201,7 +221,7 @@ class VaultViewModel(
     /** 当前应展示的条目:搜索态全局命中;否则当前目录子项;排序应用。 */
     fun visibleEntries(): List<VaultEntry> {
         val idx = _index.value ?: return emptyList()
-        val q = _query.value
+        val q = _appliedQuery.value
         val tag = _tagFilter.value
         val base = when {
             q.isNotBlank() -> idx.search(q)
@@ -229,21 +249,37 @@ class VaultViewModel(
         return list.sortedWith(base)
     }
 
+    /** 生效中的搜索词(防抖后);输入框回显走 [query],重计算只跟这个。 */
+    private val _appliedQuery = MutableStateFlow("")
+    val appliedQuery: StateFlow<String> = _appliedQuery
+
+    private var queryDebounceJob: kotlinx.coroutines.Job? = null
+
     fun setQuery(q: String) {
         _query.value = q
         if (q.isNotBlank()) { _starredOnly.value = false; _tagFilter.value = null }
+        // 150ms 防抖:连续击键只在停顿后扫一次全表;清空立即生效(退出搜索态无延迟)
+        queryDebounceJob?.cancel()
+        if (q.isBlank()) {
+            _appliedQuery.value = ""
+        } else {
+            queryDebounceJob = viewModelScope.launch {
+                kotlinx.coroutines.delay(150)
+                _appliedQuery.value = q
+            }
+        }
     }
 
     /** 只看收藏开关;开启时退出搜索/标签筛选。 */
     fun setStarredOnly(on: Boolean) {
         _starredOnly.value = on
-        if (on) { _query.value = ""; _tagFilter.value = null }
+        if (on) { queryDebounceJob?.cancel(); _query.value = ""; _appliedQuery.value = ""; _tagFilter.value = null }
     }
 
     /** 标签筛选;null 清除。开启时退出搜索/收藏筛选。 */
     fun setTagFilter(tag: String?) {
         _tagFilter.value = tag
-        if (tag != null) { _query.value = ""; _starredOnly.value = false }
+        if (tag != null) { queryDebounceJob?.cancel(); _query.value = ""; _appliedQuery.value = ""; _starredOnly.value = false }
     }
 
     /** 收藏/取消收藏(批量)。 */
@@ -323,7 +359,9 @@ class VaultViewModel(
         if (entry.isFolder) {
             _folderStack.value = _folderStack.value + entry
             // 从搜索/收藏/标签结果点进文件夹时退出筛选态,展示其内容
+            queryDebounceJob?.cancel()
             _query.value = ""
+            _appliedQuery.value = ""
             _starredOnly.value = false
             _tagFilter.value = null
         }
@@ -891,13 +929,20 @@ class VaultViewModel(
     /** 更新条目为已生成缩略图。 */
     private val thumbInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /** 缩略图解码并发上限:快速滚动时无限 launch 会把 CPU/内存打满,排队比风暴快。 */
+    private val thumbSemaphore = kotlinx.coroutines.sync.Semaphore(2)
+
     fun ensureThumb(entry: VaultEntry) {
         val blobId = entry.blobId ?: return
         // 去重:重组/快速滚动会重复触发;同 blob 并发 writeThumb 会撞 writeAtomic 的 .tmp
         if (entry.hasThumb || entry.isFolder || !thumbInFlight.add(blobId)) return
         viewModelScope.launch(Dispatchers.IO) {
+            // acquire 在 try 外:取消发生在等待期时不会误 release 未持有的许可
+            thumbSemaphore.acquire()
             try {
                 val u = unlocked ?: return@launch
+                // 排队期间可能已被标记/锁定,取到许可后再核一次
+                if (_index.value?.find(entry.id)?.hasThumb == true) return@launch
                 val bytes = container.thumbnailer.generate(u, blobId, entry.kind) ?: return@launch
                 container.vaultManager.writeThumb(u, blobId, bytes)
                 indexMutex.withLock {
@@ -917,6 +962,7 @@ class VaultViewModel(
                 // 缩略图是尽力而为的增强:锁定中途/解码失败都不该冒泡成崩溃,
                 // 残留的 thumb 文件由 deleteBlob/sweepOrphanBlobs 收尾
             } finally {
+                thumbSemaphore.release()
                 thumbInFlight.remove(blobId)
             }
         }
