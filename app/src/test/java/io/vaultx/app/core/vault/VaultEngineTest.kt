@@ -44,9 +44,9 @@ class VaultEngineTest {
 
     @Test
     fun unlockWrongPasswordFails() {
-        val meta = manager.createVault("a", pw("right"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("a", pw("rightpw1"), kdfParams = KdfParams.TEST)
         try {
-            manager.unlock(meta.vaultId, pw("wrong"))
+            manager.unlock(meta.vaultId, pw("wrongpw1"))
             fail("expected WrongPasswordException")
         } catch (_: WrongPasswordException) {
         }
@@ -54,7 +54,7 @@ class VaultEngineTest {
 
     @Test
     fun renameAndDelete() {
-        val meta = manager.createVault("old", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("old", pw("pw123456"), kdfParams = KdfParams.TEST)
         manager.renameVault(meta.vaultId, "new")
         assertEquals("new", manager.metaOf(meta.vaultId).name)
         manager.deleteVault(meta.vaultId)
@@ -64,7 +64,7 @@ class VaultEngineTest {
 
     @Test
     fun listVaultsFiltersOrphans() {
-        val meta = manager.createVault("ok", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("ok", pw("pw123456"), kdfParams = KdfParams.TEST)
         // 孤儿目录(无 meta.vault)应被忽略并清理
         manager.vaultDir("orphan-uuid").mkdirs()
         val list = manager.listVaults()
@@ -75,10 +75,10 @@ class VaultEngineTest {
 
     @Test
     fun formatVersionWrittenAndLegacyFilesReadable() {
-        val meta = manager.createVault("v", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("v", pw("pw123456"), kdfParams = KdfParams.TEST)
         // 新写出的 meta/索引都带当前版本号
         assertEquals(VaultMeta.FORMAT_VERSION, manager.metaOf(meta.vaultId).formatVersion)
-        val u = manager.unlock(meta.vaultId, pw("pw1234"))
+        val u = manager.unlock(meta.vaultId, pw("pw123456"))
         assertEquals(VaultIndex.FORMAT_VERSION, manager.loadIndex(u).formatVersion)
         // 旧格式(无版本字段)必须仍可读:去掉版本字段模拟历史文件
         val legacyMetaJson = manager.metaOf(meta.vaultId).toJson()
@@ -91,7 +91,7 @@ class VaultEngineTest {
 
     @Test
     fun futureFormatVersionRejected() {
-        val meta = manager.createVault("v", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("v", pw("pw123456"), kdfParams = KdfParams.TEST)
         val futureMeta = manager.metaOf(meta.vaultId).toJson()
             .replace("\"formatVersion\":1", "\"formatVersion\":99")
         try {
@@ -109,7 +109,7 @@ class VaultEngineTest {
 
     @Test
     fun createVaultLeavesNoStagingDir() {
-        val meta = manager.createVault("s", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("s", pw("pw123456"), kdfParams = KdfParams.TEST)
         // 建库成功后暂存壳必须已改名消失,正式目录带 meta
         assertTrue(manager.vaultDir(meta.vaultId).isDirectory)
         val vaults = File(tmp.root, VaultManager.VAULTS_DIR)
@@ -119,9 +119,11 @@ class VaultEngineTest {
     @Test
     fun listVaultsSweepsCrashedStagingButKeepsBuildingVaultOutOfSight() {
         val vaults = File(tmp.root, VaultManager.VAULTS_DIR)
-        // 模拟建库中途进程死亡留下的隐藏暂存壳
+        // 模拟建库中途进程死亡留下的隐藏暂存壳(mtime 已陈旧才会被清扫;
+        // 活暂存在派生窗口内受保护,见 VaultHardeningTest)
         val crashed = File(vaults, ".dead-uuid.building").apply { mkdirs() }
         File(crashed, "blobs").mkdirs()
+        crashed.setLastModified(System.currentTimeMillis() - VaultManager.BUILDING_STALE_MS - 1000)
         val list = manager.listVaults()
         assertTrue(list.isEmpty())
         assertFalse(crashed.exists())
@@ -130,16 +132,16 @@ class VaultEngineTest {
     @Test
     fun indexPlainAndEncryptedForms() {
         // masterGate off → 明文索引,免密可读条目数
-        val meta1 = manager.createVault("plain", pw("pw1234"), masterGate = false, kdfParams = KdfParams.TEST)
-        val unlocked1 = manager.unlock(meta1.vaultId, pw("pw1234"))
+        val meta1 = manager.createVault("plain", pw("pw123456"), masterGate = false, kdfParams = KdfParams.TEST)
+        val unlocked1 = manager.unlock(meta1.vaultId, pw("pw123456"))
         val idx = VaultIndex().apply { addEntry("a.jpg", MediaKind.IMAGE, blobId = "b1") }
         manager.saveIndex(unlocked1, idx)
         assertNotNull(manager.loadPlainIndex(meta1.vaultId))
         assertEquals(1, manager.loadPlainIndex(meta1.vaultId)!!.entries.size)
 
         // masterGate on → 索引加密,免密读不到
-        val meta2 = manager.createVault("enc", pw("pw1234"), masterGate = true, kdfParams = KdfParams.TEST)
-        val unlocked2 = manager.unlock(meta2.vaultId, pw("pw1234"))
+        val meta2 = manager.createVault("enc", pw("pw123456"), masterGate = true, kdfParams = KdfParams.TEST)
+        val unlocked2 = manager.unlock(meta2.vaultId, pw("pw123456"))
         manager.saveIndex(unlocked2, idx)
         assertNull(manager.loadPlainIndex(meta2.vaultId))
         assertEquals(1, manager.loadIndex(unlocked2).entries.size)
@@ -147,8 +149,8 @@ class VaultEngineTest {
 
     @Test
     fun masterGateToggleConvertsIndex() {
-        val meta = manager.createVault("g", pw("pw1234"), masterGate = false, kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("pw1234"))
+        val meta = manager.createVault("g", pw("pw123456"), masterGate = false, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("pw123456"))
         val idx = VaultIndex().apply { addEntry("x.txt", MediaKind.OTHER, blobId = "b") }
         manager.saveIndex(unlocked, idx)
         assertFalse(manager.metaOf(meta.vaultId).indexEncrypted)
@@ -165,23 +167,23 @@ class VaultEngineTest {
 
     @Test
     fun changePasswordZeroReencrypt() {
-        val meta = manager.createVault("k", pw("oldpw"), masterGate = true, kdfParams = KdfParams.TEST)
-        var unlocked = manager.unlock(meta.vaultId, pw("oldpw"))
+        val meta = manager.createVault("k", pw("oldpw123"), masterGate = true, kdfParams = KdfParams.TEST)
+        var unlocked = manager.unlock(meta.vaultId, pw("oldpw123"))
         val idx = VaultIndex().apply { addEntry("s.txt", MediaKind.OTHER, blobId = "bb") }
         manager.saveIndex(unlocked, idx)
         val blobFile = File(manager.blobFile(meta.vaultId, "bb").path)
         blobFile.parentFile?.mkdirs()
         blobFile.writeBytes("encrypted-placeholder".toByteArray())
 
-        manager.changePassword(unlocked, pw("newpw"))
+        manager.changePassword(unlocked, pw("newpw123"))
         // 旧密码即刻失效
         try {
-            manager.unlock(meta.vaultId, pw("oldpw"))
+            manager.unlock(meta.vaultId, pw("oldpw123"))
             fail("old password must fail")
         } catch (_: WrongPasswordException) {
         }
         // 新密码解锁,数据完好
-        unlocked = manager.unlock(meta.vaultId, pw("newpw"))
+        unlocked = manager.unlock(meta.vaultId, pw("newpw123"))
         assertEquals(1, manager.loadIndex(unlocked).entries.size)
         assertTrue(blobFile.isFile)
         assertArrayEquals("encrypted-placeholder".toByteArray(), blobFile.readBytes())
@@ -189,15 +191,15 @@ class VaultEngineTest {
 
     @Test
     fun decoyUnlocksIndependentCompartment() {
-        val meta = manager.createVault("real", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("realpw"))
-        manager.enableDecoy(unlocked, pw("decoypw"))
+        val meta = manager.createVault("real", pw("realpw12"), masterGate = true, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("realpw12"))
+        manager.enableDecoy(unlocked, pw("decoypw1"))
         assertTrue(manager.metaOf(meta.vaultId).hasDecoy)
 
         // 真密码 → 真库;诱骗密码 → 诱骗库,互不串
-        val real = manager.unlock(meta.vaultId, pw("realpw"))
+        val real = manager.unlock(meta.vaultId, pw("realpw12"))
         assertFalse(real.viaDecoy)
-        val decoy = manager.unlock(meta.vaultId, pw("decoypw"))
+        val decoy = manager.unlock(meta.vaultId, pw("decoypw1"))
         assertTrue(decoy.viaDecoy)
         assertEquals(0, manager.loadIndex(decoy).entries.size)
 
@@ -217,14 +219,14 @@ class VaultEngineTest {
 
     @Test
     fun decoyForcesMasterGateAndBlocksDisable() {
-        val meta = manager.createVault("r", pw("realpw"), masterGate = false, kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("realpw"))
-        manager.enableDecoy(unlocked, pw("decoypw"))
+        val meta = manager.createVault("r", pw("realpw12"), masterGate = false, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("realpw12"))
+        manager.enableDecoy(unlocked, pw("decoypw1"))
         // 诱骗开启后总密码被强制打开
         assertTrue(manager.metaOf(meta.vaultId).masterGate)
         assertTrue(manager.metaOf(meta.vaultId).indexEncrypted)
         // 且不可关闭
-        val u2 = manager.unlock(meta.vaultId, pw("realpw"))
+        val u2 = manager.unlock(meta.vaultId, pw("realpw12"))
         try {
             manager.setMasterGate(u2, manager.loadIndex(u2), false)
             fail("masterGate cannot be disabled with decoy")
@@ -234,7 +236,7 @@ class VaultEngineTest {
 
     @Test
     fun craftedMetaWithAbsurdKdfIsClamped() {
-        val meta = manager.createVault("r", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("r", pw("realpw12"), masterGate = true, kdfParams = KdfParams.TEST)
         // 伪造 meta:巨型 KDF 参数(恶意归档可注入)——钳制到上限内,不 OOM
         val evil = meta.copy(kdfMemoryKiB = Int.MAX_VALUE, kdfIterations = Int.MAX_VALUE, kdfParallelism = 99)
         assertEquals(512 * 1024, evil.kdfParams.memoryKiB)
@@ -244,35 +246,35 @@ class VaultEngineTest {
 
     @Test
     fun decoyPasswordEqualToRealIsRejected() {
-        val meta = manager.createVault("r", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("realpw"))
+        val meta = manager.createVault("r", pw("realpw12"), masterGate = true, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("realpw12"))
         try {
-            manager.enableDecoy(unlocked, pw("realpw"))
+            manager.enableDecoy(unlocked, pw("realpw12"))
             fail("decoy password equal to real must be rejected")
         } catch (_: IllegalArgumentException) {
         }
         assertFalse(manager.metaOf(meta.vaultId).hasDecoy)
         // 与真密码不同即可正常开启
-        manager.enableDecoy(unlocked, pw("decoypw"))
+        manager.enableDecoy(unlocked, pw("decoypw1"))
         assertTrue(manager.metaOf(meta.vaultId).hasDecoy)
     }
 
     @Test
     fun disableDecoyRequiresRealSession() {
-        val meta = manager.createVault("r", pw("realpw"), masterGate = true, kdfParams = KdfParams.TEST)
-        manager.enableDecoy(manager.unlock(meta.vaultId, pw("realpw")), pw("decoypw"))
-        val decoy = manager.unlock(meta.vaultId, pw("decoypw"))
+        val meta = manager.createVault("r", pw("realpw12"), masterGate = true, kdfParams = KdfParams.TEST)
+        manager.enableDecoy(manager.unlock(meta.vaultId, pw("realpw12")), pw("decoypw1"))
+        val decoy = manager.unlock(meta.vaultId, pw("decoypw1"))
         try {
             manager.disableDecoy(decoy)
             fail("decoy session cannot disable decoy")
         } catch (_: IllegalStateException) {
         }
-        val real = manager.unlock(meta.vaultId, pw("realpw"))
+        val real = manager.unlock(meta.vaultId, pw("realpw12"))
         manager.disableDecoy(real)
         assertFalse(manager.metaOf(meta.vaultId).hasDecoy)
         // 诱骗密码失效
         try {
-            manager.unlock(meta.vaultId, pw("decoypw"))
+            manager.unlock(meta.vaultId, pw("decoypw1"))
             fail()
         } catch (_: WrongPasswordException) {
         }
@@ -280,8 +282,8 @@ class VaultEngineTest {
 
     @Test
     fun archiveExportImportRoundtrip() {
-        val meta = manager.createVault("备份", pw("pw1234"), masterGate = true, kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("pw1234"))
+        val meta = manager.createVault("备份", pw("pw123456"), masterGate = true, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("pw123456"))
         val idx = VaultIndex().apply { addEntry("doc.txt", MediaKind.OTHER, blobId = "blob1") }
         manager.saveIndex(unlocked, idx)
         val blob = manager.blobFile(meta.vaultId, "blob1")
@@ -296,17 +298,17 @@ class VaultEngineTest {
         manager.deleteVault(meta.vaultId)
         assertFalse(manager.vaultExists(meta.vaultId))
 
-        val imported = archive.importVault(ByteArrayInputStream(archiveBytes), pw("pw1234"))
+        val imported = archive.importVault(ByteArrayInputStream(archiveBytes), pw("pw123456"))
         assertEquals(meta.vaultId, imported.vaultId)
         assertTrue(blob.isFile)
         assertArrayEquals("cipher-bytes-123".toByteArray(), blob.readBytes())
-        val u2 = manager.unlock(meta.vaultId, pw("pw1234"))
+        val u2 = manager.unlock(meta.vaultId, pw("pw123456"))
         assertEquals("doc.txt", manager.loadIndex(u2).entries[0].name)
     }
 
     @Test
     fun archiveTamperRejectedAndNoResidue() {
-        val meta = manager.createVault("t", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("t", pw("pw123456"), kdfParams = KdfParams.TEST)
         val blob = manager.blobFile(meta.vaultId, "b1")
         blob.parentFile?.mkdirs()
         blob.writeBytes("data".toByteArray())
@@ -316,7 +318,7 @@ class VaultEngineTest {
         bytes[bytes.size - 1] = (bytes.last() + 1).toByte()
         manager.deleteVault(meta.vaultId)
         try {
-            archive.importVault(ByteArrayInputStream(bytes), pw("pw1234"))
+            archive.importVault(ByteArrayInputStream(bytes), pw("pw123456"))
             fail("tamper must be rejected")
         } catch (_: ArchiveException) {
         }
@@ -327,7 +329,7 @@ class VaultEngineTest {
 
     @Test
     fun archiveImportWrongPasswordRejected() {
-        val meta = manager.createVault("t", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("t", pw("pw123456"), kdfParams = KdfParams.TEST)
         val out = ByteArrayOutputStream()
         archive.exportVault(meta.vaultId, out)
         manager.deleteVault(meta.vaultId)
@@ -341,8 +343,8 @@ class VaultEngineTest {
 
     @Test
     fun folderCascadeDeleteAndMoveCycleGuard() {
-        val meta = manager.createVault("f", pw("pw1234"), kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("pw1234"))
+        val meta = manager.createVault("f", pw("pw123456"), kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("pw123456"))
         val idx = VaultIndex().apply {
             addEntry("dirA", MediaKind.FOLDER)
             addEntry("dirB", MediaKind.FOLDER)
@@ -363,8 +365,8 @@ class VaultEngineTest {
 
     @Test
     fun indexCacheIsolatedFromCallerMutation() {
-        val meta = manager.createVault("c", pw("pw1234"), kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("pw1234"))
+        val meta = manager.createVault("c", pw("pw123456"), kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("pw123456"))
         val idx = VaultIndex()
         idx.addEntry("a.txt", MediaKind.OTHER)
         manager.saveIndex(unlocked, idx)
@@ -379,8 +381,8 @@ class VaultEngineTest {
 
     @Test
     fun lockInvalidatesIndexCache() {
-        val meta = manager.createVault("c", pw("pw1234"), kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("pw1234"))
+        val meta = manager.createVault("c", pw("pw123456"), kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("pw123456"))
         manager.saveIndex(unlocked, VaultIndex().apply { addEntry("a.txt", MediaKind.OTHER) })
         assertEquals(1, manager.loadIndex(unlocked).entries.size)
         manager.onVaultLocked(meta.vaultId)
@@ -391,38 +393,38 @@ class VaultEngineTest {
     @Test
     fun rewrapParamsUpgradeOnUnlock() {
         val stronger = KdfParams(memoryKiB = 16 * 1024, iterations = 2, parallelism = 1)
-        val meta = manager.createVault("u", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("u", pw("pw123456"), kdfParams = KdfParams.TEST)
         // 解锁时带更强参数 → 透明重包裹
-        manager.unlock(meta.vaultId, pw("pw1234"), rewrapParams = stronger)
+        manager.unlock(meta.vaultId, pw("pw123456"), rewrapParams = stronger)
         assertEquals(stronger, manager.metaOf(meta.vaultId).kdfParams)
         // 旧数据还能解
-        manager.unlock(meta.vaultId, pw("pw1234"))
+        manager.unlock(meta.vaultId, pw("pw123456"))
         // 降级请求不动
-        manager.unlock(meta.vaultId, pw("pw1234"), rewrapParams = KdfParams.TEST)
+        manager.unlock(meta.vaultId, pw("pw123456"), rewrapParams = KdfParams.TEST)
         assertEquals(stronger, manager.metaOf(meta.vaultId).kdfParams)
     }
 
     @Test
     fun archiveExcludesBioWrap() {
-        val meta = manager.createVault("b", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("b", pw("pw123456"), kdfParams = KdfParams.TEST)
         manager.writeBioWrap(meta.vaultId, byteArrayOf(1, 2, 3))
         val out = ByteArrayOutputStream()
         archive.exportVault(meta.vaultId, out)
         manager.deleteVault(meta.vaultId)
-        archive.importVault(ByteArrayInputStream(out.toByteArray()), pw("pw1234"))
+        archive.importVault(ByteArrayInputStream(out.toByteArray()), pw("pw123456"))
         // bio.wrap 绑定本机 Keystore,不随归档走
         assertFalse(manager.bioWrapFile(meta.vaultId).exists())
     }
 
     @Test
     fun archiveTrailingGarbageRejected() {
-        val meta = manager.createVault("t", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("t", pw("pw123456"), kdfParams = KdfParams.TEST)
         val out = ByteArrayOutputStream()
         archive.exportVault(meta.vaultId, out)
         val bytes = out.toByteArray() + byteArrayOf(0x55)
         manager.deleteVault(meta.vaultId)
         try {
-            archive.importVault(ByteArrayInputStream(bytes), pw("pw1234"))
+            archive.importVault(ByteArrayInputStream(bytes), pw("pw123456"))
             fail("trailing garbage must be rejected")
         } catch (e: ArchiveException) {
             assertTrue(e.message!!.contains("trailing garbage"))
@@ -432,7 +434,7 @@ class VaultEngineTest {
 
     @Test
     fun archiveTruncatedRejected() {
-        val meta = manager.createVault("t", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("t", pw("pw123456"), kdfParams = KdfParams.TEST)
         val blob = manager.blobFile(meta.vaultId, "b1")
         blob.parentFile?.mkdirs()
         blob.writeBytes(ByteArray(10_000) { 3 })
@@ -441,7 +443,7 @@ class VaultEngineTest {
         val truncated = out.toByteArray().copyOf(out.size() - 100)
         manager.deleteVault(meta.vaultId)
         try {
-            archive.importVault(ByteArrayInputStream(truncated), pw("pw1234"))
+            archive.importVault(ByteArrayInputStream(truncated), pw("pw123456"))
             fail("truncated archive must be rejected")
         } catch (_: ArchiveException) {
         }
@@ -450,8 +452,8 @@ class VaultEngineTest {
 
     @Test
     fun wipeAllRemovesEverything() {
-        manager.createVault("a", pw("pw1234"), kdfParams = KdfParams.TEST)
-        manager.createVault("b", pw("pw1234"), kdfParams = KdfParams.TEST)
+        manager.createVault("a", pw("pw123456"), kdfParams = KdfParams.TEST)
+        manager.createVault("b", pw("pw123456"), kdfParams = KdfParams.TEST)
         File(manager.pendingRoot(), "import-stuck").mkdirs()
         manager.wipeAll()
         assertTrue(manager.listVaults().isEmpty())
@@ -460,8 +462,8 @@ class VaultEngineTest {
 
     @Test
     fun sweepOrphanBlobsRemovesUnreferenced() {
-        val meta = manager.createVault("s", pw("pw1234"), kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, pw("pw1234"))
+        val meta = manager.createVault("s", pw("pw123456"), kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, pw("pw123456"))
         val idx = VaultIndex()
         idx.addEntry("keep.txt", MediaKind.OTHER, blobId = "live-1")
         manager.saveIndex(unlocked, idx)

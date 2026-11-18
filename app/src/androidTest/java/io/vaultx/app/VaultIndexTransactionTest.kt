@@ -27,8 +27,8 @@ class VaultIndexTransactionTest {
     fun tamperedEncryptedIndexIsRejected() {
         val dir = filesDir()
         val manager = VaultManager(dir)
-        val meta = manager.createVault("t", "pw1234".toCharArray(), masterGate = true, kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, "pw1234".toCharArray())
+        val meta = manager.createVault("t", "pw123456".toCharArray(), masterGate = true, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, "pw123456".toCharArray())
         manager.saveIndex(unlocked, VaultIndex().apply { addEntry("x.txt", MediaKind.OTHER, blobId = "b") })
 
         // 破坏 index.enc 的一个字节(AEAD 认证必败)
@@ -48,8 +48,8 @@ class VaultIndexTransactionTest {
     fun indexConsistentAcrossFreshManagerInstance() {
         val dir = filesDir()
         val m1 = VaultManager(dir)
-        val meta = m1.createVault("t", "pw1234".toCharArray(), masterGate = true, kdfParams = KdfParams.TEST)
-        val u1 = m1.unlock(meta.vaultId, "pw1234".toCharArray())
+        val meta = m1.createVault("t", "pw123456".toCharArray(), masterGate = true, kdfParams = KdfParams.TEST)
+        val u1 = m1.unlock(meta.vaultId, "pw123456".toCharArray())
         m1.saveIndex(u1, VaultIndex().apply {
             addEntry("a.jpg", MediaKind.IMAGE, blobId = "b1", sizeBytes = 42)
             addEntry("dir", MediaKind.FOLDER)
@@ -57,7 +57,7 @@ class VaultIndexTransactionTest {
 
         // 模拟进程重启:新实例读同一目录
         val m2 = VaultManager(dir)
-        val u2 = m2.unlock(meta.vaultId, "pw1234".toCharArray())
+        val u2 = m2.unlock(meta.vaultId, "pw123456".toCharArray())
         val loaded = m2.loadIndex(u2)
         assertEquals(2, loaded.entries.size)
         assertEquals("a.jpg", loaded.entries[0].name)
@@ -69,8 +69,8 @@ class VaultIndexTransactionTest {
     fun saveIndexRollbackKeepsLastGood() {
         val dir = filesDir()
         val manager = VaultManager(dir)
-        val meta = manager.createVault("t", "pw1234".toCharArray(), masterGate = false, kdfParams = KdfParams.TEST)
-        val unlocked = manager.unlock(meta.vaultId, "pw1234".toCharArray())
+        val meta = manager.createVault("t", "pw123456".toCharArray(), masterGate = false, kdfParams = KdfParams.TEST)
+        val unlocked = manager.unlock(meta.vaultId, "pw123456".toCharArray())
         val good = VaultIndex().apply { addEntry("good.txt", MediaKind.OTHER) }
         manager.saveIndex(unlocked, good)
 

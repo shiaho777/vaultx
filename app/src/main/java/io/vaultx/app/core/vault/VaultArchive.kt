@@ -27,14 +27,19 @@ import java.util.UUID
  */
 class VaultArchive(private val vaultManager: VaultManager) {
 
-    /** 免密码导出:逐文件哈希 + 密文原样打包。meta.vault 排最前,便于快速读头。 */
+    /** 免密码导出:逐文件哈希 + 密文原样打包。meta.vault 强制排首,导入验密无需跳过数 GB blob。 */
     fun exportVault(vaultId: String, output: OutputStream, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }) {
         val dir = vaultManager.vaultDir(vaultId)
         require(dir.isDirectory) { "vault not found: $vaultId" }
         val files = dir.walkTopDown()
             // bio.wrap 绑定本机 Keystore 不可携带;.tmp 是 writeAtomic 半途残迹
             .filter { it.isFile && it.name != VaultManager.BIO_WRAP && !it.name.endsWith(".tmp") }
-            .sortedBy { it.relativeTo(dir).invariantSeparatorsPath }
+            // meta.vault 必须排第一:纯字典序会把 blobs/ 排在 meta 前面,
+            // peekMeta 验密就得流式 skip 整个库的密文——大库导入前验证要等数分钟
+            .sortedWith(
+                compareBy<File> { if (it.name == VaultMeta.FILE_NAME && it.parentFile == dir) 0 else 1 }
+                    .thenBy { it.relativeTo(dir).invariantSeparatorsPath },
+            )
             .toList()
         val out = DataOutputStream(output)
         out.write(MAGIC)
@@ -43,30 +48,38 @@ class VaultArchive(private val vaultManager: VaultManager) {
         files.forEachIndexed { i, f ->
             val rel = f.relativeTo(dir).invariantSeparatorsPath
             val pathBytes = rel.toByteArray(Charsets.UTF_8)
-            // 先哈希再记长度,然后只写声明的 size 字节——若导出中途文件被并发
-            // 追加,copyTo 会写出超界字节让整个归档错位;有界拷贝保证条目边界对齐
-            val digest = sha256Of(f)
-            val size = f.length()
-            out.writeShort(pathBytes.size)
-            out.write(pathBytes)
-            out.writeLong(size)
-            out.write(digest)
-            f.inputStream().use { copyExactly(it, out, size) }
+            // u16 路径长度:超限必须显式报错,writeShort 静默截断会产出损坏归档
+            if (pathBytes.size > 65535) throw ArchiveException("path too long for archive format: $rel")
+            // 单遍"读-哈希-转发":size/digest/内容出自同一次读取,消除
+            // "先哈希后 stat"之间文件被并发修改导致的不一致(TOCTOU)。
+            // 内容先落本地临时文件(私有目录,密文原样),长度确定后再写头+转发。
+            val tmp = File.createTempFile("fvault-", ".part", vaultManager.pendingRoot())
+            try {
+                val md = MessageDigest.getInstance("SHA-256")
+                var size = 0L
+                tmp.outputStream().use { sink ->
+                    f.inputStream().use { ins ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = ins.read(buf)
+                            if (n < 0) break
+                            sink.write(buf, 0, n)
+                            md.update(buf, 0, n)
+                            size += n
+                        }
+                    }
+                }
+                out.writeShort(pathBytes.size)
+                out.write(pathBytes)
+                out.writeLong(size)
+                out.write(md.digest())
+                tmp.inputStream().use { it.copyTo(out, 64 * 1024) }
+            } finally {
+                tmp.delete()
+            }
             onProgress(i + 1, files.size)
         }
         out.flush()
-    }
-
-    /** 恰好写 [size] 字节;源提前 EOF(并发截断)抛 IOException。 */
-    private fun copyExactly(ins: InputStream, out: OutputStream, size: Long) {
-        val buf = ByteArray(64 * 1024)
-        var remaining = size
-        while (remaining > 0) {
-            val n = ins.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
-            if (n < 0) throw IOException("file truncated during export")
-            out.write(buf, 0, n)
-            remaining -= n
-        }
     }
 
     /** 只读清单里的 meta.vault(不必解出全部条目),供导入前展示/验密码。 */
@@ -182,19 +195,6 @@ class VaultArchive(private val vaultManager: VaultManager) {
             throw ArchiveException("invalid path: $path")
         }
         return path
-    }
-
-    private fun sha256Of(f: File): ByteArray {
-        val md = MessageDigest.getInstance("SHA-256")
-        f.inputStream().use { ins ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                val n = ins.read(buf)
-                if (n < 0) break
-                md.update(buf, 0, n)
-            }
-        }
-        return md.digest()
     }
 
     private fun copyWithHash(data: DataInputStream, target: File, size: Long): ByteArray {

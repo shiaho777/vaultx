@@ -83,6 +83,10 @@ class VaultDataSource(
         private val sizes: Map<String, Long>,
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
-            VaultDataSource(unlocked, vaultManager) { sizes[it] ?: 0L }
+            VaultDataSource(unlocked, vaultManager) { id ->
+                // 缺映射必须显式报错:回落 0 会让 ExoPlayer 拿到"空文件",
+                // 表现为无提示的静默播放失败,极难排查
+                sizes[id] ?: throw IOException("no plaintext length mapping for blob: $id")
+            }
     }
 }

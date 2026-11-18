@@ -727,7 +727,7 @@ private fun CreateVaultDialog(
     )
 }
 
-private const val VaultManager_MIN_PW = 4
+private const val VaultManager_MIN_PW = io.vaultx.app.core.vault.VaultManager.MIN_PASSWORD_LENGTH
 
 /** 解锁对话框;诱骗密码同样走这里(服务端表现一致)。 */
 @Composable

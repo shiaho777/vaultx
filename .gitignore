@@ -10,3 +10,8 @@
 local.properties
 app/build/
 .kotlin/
+
+# 签名材料：绝不入库
+keystore.properties
+*.keystore
+*.jks

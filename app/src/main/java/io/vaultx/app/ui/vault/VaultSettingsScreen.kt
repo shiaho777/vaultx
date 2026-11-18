@@ -455,7 +455,7 @@ fun VaultSettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     when {
-                        pw.length < 4 -> err = passwordShortError
+                        pw.length < io.vaultx.app.core.vault.VaultManager.MIN_PASSWORD_LENGTH -> err = passwordShortError
                         pw != pw2 -> err = passwordMismatchError
                         else -> {
                             val u = unlocked ?: return@TextButton
@@ -504,7 +504,7 @@ fun VaultSettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     when {
-                        pw.length < 4 -> err = passwordShortError
+                        pw.length < io.vaultx.app.core.vault.VaultManager.MIN_PASSWORD_LENGTH -> err = passwordShortError
                         pw != pw2 -> err = passwordMismatchError
                         else -> {
                             val u = unlocked ?: return@TextButton

@@ -128,7 +128,7 @@ class VaultBrowsingTest {
 
     @Test
     fun vaultDiskUsageSumsFiles() {
-        val meta = manager.createVault("d", pw("pw1234"), kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("d", pw("pw123456"), kdfParams = KdfParams.TEST)
         val before = manager.vaultDiskUsage(meta.vaultId)
         assertTrue(before > 0)
         val blob = manager.blobFile(meta.vaultId, "b1")
@@ -180,10 +180,10 @@ class VaultBrowsingTest {
 
     @Test
     fun loadPlainIndexReturnsNullWhenEncrypted() {
-        val meta = manager.createVault("e", pw("pw1234"), masterGate = true, kdfParams = KdfParams.TEST)
+        val meta = manager.createVault("e", pw("pw123456"), masterGate = true, kdfParams = KdfParams.TEST)
         assertNull(manager.loadPlainIndex(meta.vaultId))
         // 明文模式则有
-        val meta2 = manager.createVault("p", pw("pw1234"), masterGate = false, kdfParams = KdfParams.TEST)
+        val meta2 = manager.createVault("p", pw("pw123456"), masterGate = false, kdfParams = KdfParams.TEST)
         assertEquals(0, manager.loadPlainIndex(meta2.vaultId)?.entries?.size)
     }
 }

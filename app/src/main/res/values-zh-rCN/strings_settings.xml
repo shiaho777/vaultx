@@ -45,7 +45,7 @@
     <string name="vset_new_password">新密码</string>
     <string name="vset_confirm_new_password">确认新密码</string>
     <string name="vset_password_strength">强度:%1$s</string>
-    <string name="vset_error_password_short">密码至少 4 位</string>
+    <string name="vset_error_password_short">密码至少 8 位</string>
     <string name="vset_error_password_mismatch">两次密码不一致</string>
     <string name="vset_busy_changing_password">改密码…</string>
     <string name="vset_notice_password_updated">密码已更新</string>

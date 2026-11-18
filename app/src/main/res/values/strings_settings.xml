@@ -45,7 +45,7 @@
     <string name="vset_new_password">New password</string>
     <string name="vset_confirm_new_password">Confirm new password</string>
     <string name="vset_password_strength">Strength: %1$s</string>
-    <string name="vset_error_password_short">Password must be at least 4 characters</string>
+    <string name="vset_error_password_short">Password must be at least 8 characters</string>
     <string name="vset_error_password_mismatch">Passwords do not match</string>
     <string name="vset_busy_changing_password">Changing password…</string>
     <string name="vset_notice_password_updated">Password updated</string>

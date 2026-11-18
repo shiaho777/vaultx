@@ -33,8 +33,8 @@ class TransferEngineTest {
     fun setUp() {
         manager = VaultManager(tmp.root)
         engine = TransferEngine(manager)
-        val meta = manager.createVault("t", "pw1234".toCharArray(), kdfParams = KdfParams.TEST)
-        unlocked = manager.unlock(meta.vaultId, "pw1234".toCharArray())
+        val meta = manager.createVault("t", "pw123456".toCharArray(), kdfParams = KdfParams.TEST)
+        unlocked = manager.unlock(meta.vaultId, "pw123456".toCharArray())
     }
 
     // ---------------- 内存源/汇 ----------------

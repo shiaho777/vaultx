@@ -87,8 +87,12 @@ class VaultManager(private val rootDir: File) {
     fun listVaults(): List<VaultMeta> =
         vaultsRoot().listFiles()
             ?.onEach { dir ->
-                // 建库崩溃留下的隐藏暂存壳(密钥派生中进程被杀):无任何用户数据,清掉
-                if (dir.isDirectory && dir.name.endsWith(".building") && dir.name.startsWith(".")) {
+                // 建库崩溃留下的隐藏暂存壳(密钥派生中进程被杀):无任何用户数据,清掉。
+                // ⚠ 只清"陈旧"暂存:Argon2 派生可达数秒,期间并发的 listVaults 若把
+                // 正在建库的活暂存当垃圾删掉,建库会在 rename 时静默毁库。
+                if (dir.isDirectory && dir.name.endsWith(".building") && dir.name.startsWith(".") &&
+                    System.currentTimeMillis() - dir.lastModified() > BUILDING_STALE_MS
+                ) {
                     dir.deleteRecursively()
                 }
             }
@@ -133,7 +137,12 @@ class VaultManager(private val rootDir: File) {
             val salt = ByteArray(SALT_LENGTH).also(random::nextBytes)
             val vmk = VaultCrypto.generateVmk()
             val kek = try {
-                Argon2idKdf.derive(password, salt, kdfParams)
+                // 派生前后各刷一次 mtime:高参数档位派生可达分钟级,
+                // 保证活暂存在整个派生窗口内不会被 listVaults 判为陈旧
+                staging.setLastModified(System.currentTimeMillis())
+                Argon2idKdf.derive(password, salt, kdfParams).also {
+                    staging.setLastModified(System.currentTimeMillis())
+                }
             } catch (e: Throwable) {
                 // 派生失败(如内存不足)时清除半成品目录,不留孤儿库壳
                 staging.deleteRecursively()
@@ -184,27 +193,41 @@ class VaultManager(private val rootDir: File) {
         vaultId: String,
         password: CharArray,
         rewrapParams: KdfParams? = null,
+        /** 参数升级(rewrap)失败等非致命警告;解锁本身已成功,UI 可提示但不报错。 */
+        onWarning: (String) -> Unit = {},
     ): UnlockedVault {
         try {
             val meta = metaOf(vaultId)
-            try {
-                val real = unlockWith(meta, meta.saltBytes(), meta.wrappedVmkBytes(), meta.kdfParams, password, viaDecoy = false)
-                maybeRewrap(real, password, rewrapParams)
-                return real
-            } catch (e: WrongPasswordException) {
-                // 真密码失败 → 若配置了诱骗库,再试诱骗密码;两者失败表现完全一致
-                if (!meta.hasDecoy) throw e
-                val decoy = unlockWith(
-                    meta,
-                    meta.saltDecoyBytes() ?: throw e,
-                    meta.wrappedVmkDecoyBytes() ?: throw e,
-                    meta.kdfDecoyParams,
-                    password,
-                    viaDecoy = true,
-                )
-                maybeRewrap(decoy, password, rewrapParams)
-                return decoy
+            // 恒定双链:配置了诱骗库时,无论真密码是否命中都完整跑两条 KDF——
+            // 否则"错密码耗时翻倍"成为可探测诱骗库存在性的时序侧信道。
+            val real = try {
+                unlockWith(meta, meta.saltBytes(), meta.wrappedVmkBytes(), meta.kdfParams, password, viaDecoy = false)
+            } catch (_: WrongPasswordException) {
+                null
             }
+            var decoy: UnlockedVault? = null
+            if (meta.hasDecoy) {
+                val salt = meta.saltDecoyBytes()
+                val wrapped = meta.wrappedVmkDecoyBytes()
+                if (salt != null && wrapped != null) {
+                    decoy = try {
+                        unlockWith(meta, salt, wrapped, meta.kdfDecoyParams, password, viaDecoy = true)
+                    } catch (_: WrongPasswordException) {
+                        null
+                    }
+                }
+            }
+            val chosen = real ?: decoy ?: throw WrongPasswordException()
+            // 双链同时命中只可能是损坏/异常配置:真链优先,另一条会话立即清零
+            if (real != null && decoy != null) decoy.crypto.zeroize()
+            // rewrap 是尽力而为的参数升级:失败(IO/磁盘满)降级为警告——
+            // 解锁已成功,绝不能把活会话当错误抛出(VMK 泄漏在堆里)
+            try {
+                maybeRewrap(chosen, password, rewrapParams)
+            } catch (e: Exception) {
+                onWarning("key parameter upgrade failed: ${e.message}")
+            }
+            return chosen
         } finally {
             password.fill('\u0000')
         }
@@ -450,12 +473,18 @@ class VaultManager(private val rootDir: File) {
         }
     }
 
-    /** 移除诱骗库:销毁诱骗索引与包裹体。真库数据与密码完全不受影响;masterGate 保持开启(可手动关)。 */
+    /** 移除诱骗库:销毁诱骗索引、包裹体与诱骗 blob。真库数据与密码完全不受影响;masterGate 保持开启(可手动关)。 */
     fun disableDecoy(unlocked: UnlockedVault) {
         check(!unlocked.viaDecoy) { "removing the decoy vault requires a real-password session" }
         val meta = unlocked.meta
         check(meta.hasDecoy) { "decoy vault does not exist" }
         val vaultId = unlocked.vaultId
+        // 诱骗 blob 清扫:只删索引会把诱骗密文留成无主孤儿(存储泄漏+取证痕迹)。
+        // 诱骗索引由诱骗 VMK 加密,而移除诱骗只需真密码——
+        // 拿不到诱骗密钥,无法逐条读诱骗索引。改用反向口径:真/诱骗 blobId
+        // 均为随机 UUID 绝不重叠,凡不被真索引引用的 blob 都是诱骗 compartment
+        // 的密文(含其回收站条目——loadIndex 不过滤 trashed,活引用集完整)。
+        runCatching { sweepOrphanBlobs(vaultId, loadIndex(unlocked)) }
         indexDecoyEncFile(vaultId).delete()
         synchronized(cacheLock) { indexCache.remove(decoyCacheKey(vaultId)) }
         val newMeta = meta.copy(
@@ -571,12 +600,15 @@ class VaultManager(private val rootDir: File) {
     // ---------------- 原子写 ----------------
 
     /**
-     * 原子写:先写 tmp + fsync,再 rename;rename 失败重试一次,仍失败则抛错并保留旧文件——
-     * 绝不原地半截覆写(崩溃瞬间不能把索引/密钥元数据写烂)。
+     * 原子写:先写随机名 tmp + fsync,再 rename + 父目录 fsync;rename 失败重试一次,
+     * 仍失败则抛错并保留旧文件——绝不原地半截覆写(崩溃瞬间不能把索引/密钥元数据写烂)。
+     * 随机 tmp 名:并发写同一 target 时互不覆盖对方的临时文件。
+     * 父目录 fsync:rename 本身也需要落盘,否则掉电可能丢掉整个改名。
      */
     fun writeAtomic(target: File, bytes: ByteArray) {
-        target.parentFile?.mkdirs()
-        val tmp = File(target.parentFile, target.name + ".tmp")
+        val parent = target.parentFile
+        parent?.mkdirs()
+        val tmp = File(parent, target.name + "." + UUID.randomUUID().toString().take(8) + ".tmp")
         try {
             FileOutputStream(tmp).use { fos ->
                 fos.write(bytes)
@@ -585,8 +617,17 @@ class VaultManager(private val rootDir: File) {
             if (!tmp.renameTo(target) && !tmp.renameTo(target)) {
                 throw IOException("atomic rename failed: $target")
             }
+            syncDir(parent)
         } finally {
             if (tmp.exists()) tmp.delete()
+        }
+    }
+
+    /** 目录项 fsync(尽力而为:个别文件系统不支持目录通道,失败不影响数据本身已落盘)。 */
+    private fun syncDir(dir: File?) {
+        if (dir == null) return
+        runCatching {
+            FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) }
         }
     }
 
@@ -666,6 +707,8 @@ class VaultManager(private val rootDir: File) {
         const val THUMBS_DIR = "thumbs"
         const val BIO_WRAP = "bio.wrap"
         const val SALT_LENGTH = 16
-        const val MIN_PASSWORD_LENGTH = 4
+        const val MIN_PASSWORD_LENGTH = 8
+        /** 建库暂存目录的"陈旧"判定窗口:超过此时长无活动才视为崩溃残迹可清扫。 */
+        const val BUILDING_STALE_MS = 10 * 60 * 1000L
     }
 }

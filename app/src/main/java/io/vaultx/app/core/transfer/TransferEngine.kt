@@ -200,8 +200,10 @@ class TransferEngine(private val vaultManager: VaultManager) {
             uniqueIn(src.name, brothers),
             kindOf(src.name, src.mimeType),
             blobId,
-            // 索引记明文长度(导出显示/播放器 seek 用);源报不出大小时回落密文长度
-            if (src.sizeBytes >= 0) src.sizeBytes else vaultManager.blobSize(unlocked.vaultId, blobId),
+            // 索引记明文长度(导出显示/播放器 seek 用);源报不出大小时用实际
+            // 拷贝的明文字节数——绝不能回落密文长度(Tink 头+分块 tag 会让
+            // 播放器按错误长度 seek,静默播放失败)
+            if (src.sizeBytes >= 0) src.sizeBytes else copied,
             parentId,
             src.mimeType,
         )

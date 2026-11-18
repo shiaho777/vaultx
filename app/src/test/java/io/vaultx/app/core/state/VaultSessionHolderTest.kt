@@ -29,8 +29,8 @@ class VaultSessionHolderTest {
     @Before
     fun setUp() {
         manager = VaultManager(tmp.root)
-        val meta = manager.createVault("t", "pw1234".toCharArray(), kdfParams = KdfParams.TEST)
-        unlocked = manager.unlock(meta.vaultId, "pw1234".toCharArray())
+        val meta = manager.createVault("t", "pw123456".toCharArray(), kdfParams = KdfParams.TEST)
+        unlocked = manager.unlock(meta.vaultId, "pw123456".toCharArray())
     }
 
     @Test
@@ -130,7 +130,7 @@ class VaultSessionHolderTest {
     fun replaceSameVaultZeroizesOldSession() {
         val holder = VaultSessionHolder(scope = null, clock = { 0L })
         holder.put(unlocked)
-        val fresh = manager.unlock(unlocked.vaultId, "pw1234".toCharArray())
+        val fresh = manager.unlock(unlocked.vaultId, "pw123456".toCharArray())
         holder.put(fresh)
         assertEquals(fresh, holder.get(unlocked.vaultId))
     }

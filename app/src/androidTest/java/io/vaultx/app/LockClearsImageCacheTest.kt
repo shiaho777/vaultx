@@ -27,8 +27,8 @@ class LockClearsImageCacheTest {
         val container = AppContainer(context)
 
         // 建库 + 解锁 + 写一条目(让索引缓存里有明文)
-        val meta = container.vaultManager.createVault("t", "pw1234".toCharArray(), kdfParams = KdfParams.TEST)
-        val unlocked = container.vaultManager.unlock(meta.vaultId, "pw1234".toCharArray())
+        val meta = container.vaultManager.createVault("t", "pw123456".toCharArray(), kdfParams = KdfParams.TEST)
+        val unlocked = container.vaultManager.unlock(meta.vaultId, "pw123456".toCharArray())
         container.session.put(unlocked)
         val idx = container.vaultManager.loadIndex(unlocked)
         idx.addEntry("a.jpg", io.vaultx.app.core.vault.MediaKind.IMAGE, blobId = "b")
