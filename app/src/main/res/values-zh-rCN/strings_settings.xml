@@ -64,6 +64,12 @@
     <string name="vset_notice_bio_disabled">生物识别已关闭</string>
 
     <!-- AppSettingsScreen -->
+    <string name="settings_theme_title">外观</string>
+    <string name="settings_theme_system">跟随系统</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_dark">深色</string>
+    <string name="settings_dynamic_color">动态取色 (Material You)</string>
+    <string name="settings_dynamic_color_summary">从壁纸取色,Android 12+ 生效;低版本回退品牌色</string>
     <string name="aset_title">应用设置</string>
     <string name="aset_back">返回</string>
     <string name="aset_section_security">安全</string>

@@ -180,6 +180,13 @@ fun TrashScreen(
     }
 }
 
+/** 距自动清扫还剩几天(向上取整,至少 0)。 */
+private fun daysLeft(trashedAt: Long): Int {
+    val expireAt = trashedAt + VaultIndex.TRASH_RETENTION_MS
+    val ms = expireAt - System.currentTimeMillis()
+    return if (ms <= 0) 0 else ((ms + 24 * 3600 * 1000 - 1) / (24 * 3600 * 1000)).toInt()
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun TrashRow(
@@ -197,7 +204,9 @@ private fun TrashRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .combinedClickable(
-                onClick = { if (selecting) onToggle() else onRestore() },
+                // 单击不再直接恢复(误触即还原,用户无感知);统一进多选,
+                // 恢复走右侧显式按钮——破坏性/状态变更操作都要有明确意图
+                onClick = onToggle,
                 onLongClick = onToggle,
             ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -230,6 +239,9 @@ private fun TrashRow(
                         append(stringResource(R.string.trash_deleted_at, fmt.format(Date(entry.trashedAt ?: 0))))
                         if (entry.isFolder) append(" · ${stringResource(R.string.trash_item_count, descendantCount)}")
                         else if (entry.sizeBytes > 0) append(" · ${formatBytes(entry.sizeBytes)}")
+                        // 剩余保留天数:到期自动彻底删除,提前可见避免"文件突然消失"
+                        val left = daysLeft(entry.trashedAt ?: 0)
+                        append(" · ${stringResource(R.string.trash_days_left, left)}")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

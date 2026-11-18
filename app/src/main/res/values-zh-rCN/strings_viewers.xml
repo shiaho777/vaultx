@@ -3,6 +3,12 @@
     <!-- ImageViewerScreen -->
     <string name="iview_open_failed">无法打开该文件</string>
     <string name="iview_back">返回</string>
+    <string name="viewer_image_load_failed">图片加载失败</string>
+    <string name="viewer_image_empty">该目录暂无图片</string>
+    <string name="viewer_retry">重试</string>
+    <string name="viewer_brightness">亮度 %1$d%%</string>
+    <string name="viewer_volume">音量 %1$d%%</string>
+    <string name="viewer_seek">跳转至 %1$s</string>
 
     <!-- VideoPlayerScreen -->
     <string name="vplay_error">播放失败:%1$s</string>

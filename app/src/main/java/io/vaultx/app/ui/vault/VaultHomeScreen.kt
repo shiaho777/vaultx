@@ -92,6 +92,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -163,7 +164,7 @@ fun VaultHomeScreen(
     // 本次会话内忽略备份提醒(不持久化:下次进库仍会温和提示)
     var backupDismissed by remember { mutableStateOf(false) }
     // 回收站视图开关(同 VM 内切换,不走导航栈)
-    var showTrash by remember { mutableStateOf(false) }
+    var showTrash by rememberSaveable { mutableStateOf(false) }
     val starredOnly by vm.starredOnly.collectAsState()
     val tagFilter by vm.tagFilter.collectAsState()
     val allTags = remember(index) { index?.allTags() ?: emptyList() }
@@ -173,11 +174,11 @@ fun VaultHomeScreen(
     // 横幅退场动画期间保留最后文案(直接读 error/notice 会先变空再收缩)
     var lastErrorText by remember { mutableStateOf("") }
     var lastNoticeText by remember { mutableStateOf("") }
-    error?.let { lastErrorText = it }
-    notice?.let { lastNoticeText = it }
+    LaunchedEffect(error) { error?.let { lastErrorText = it } }
+    LaunchedEffect(notice) { notice?.let { lastNoticeText = it } }
 
     val searchFocus = remember { FocusRequester() }
-    var searching by remember { mutableStateOf(false) }
+    var searching by rememberSaveable { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var importMenu by remember { mutableStateOf(false) }
     var overflowFor by remember { mutableStateOf<VaultEntry?>(null) }
@@ -1098,9 +1099,18 @@ fun VaultHomeScreen(
             content = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching {
                     val u = container.session.get(vaultId) ?: return@runCatching null
-                    container.vaultManager.openBlobStream(u, entry.blobId!!).use {
-                        // 索引里的 sizeBytes 只作 UI 参考——流可能更大,截到上限防内存膨胀
-                        decodePreviewText(it.readNBytes(TEXT_PREVIEW_MAX_BYTES.toInt() + 1))
+                    container.vaultManager.openBlobStream(u, entry.blobId!!).use { ins ->
+                        // 索引里的 sizeBytes 只作 UI 参考——流可能更大,截到上限防内存膨胀。
+                        // 手写有界读取:InputStream.readNBytes 要 API 33,minSdk 26 会崩
+                        val cap = TEXT_PREVIEW_MAX_BYTES.toInt() + 1
+                        val buf = ByteArray(8192)
+                        val out = java.io.ByteArrayOutputStream()
+                        while (out.size() < cap) {
+                            val n = ins.read(buf, 0, minOf(buf.size, cap - out.size()))
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                        }
+                        decodePreviewText(out.toByteArray())
                     }
                 }.getOrNull()
             }

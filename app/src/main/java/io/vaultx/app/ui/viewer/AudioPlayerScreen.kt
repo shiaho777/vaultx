@@ -56,6 +56,7 @@ import kotlinx.coroutines.delay
  * 音频播放:同目录播放列表 + 上一首/播放暂停/下一首,进度条可拖。
  * 播放走与视频相同的解密 DataSource;解码失败显式报错;切歌重置进度。
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun AudioPlayerScreen(
     container: AppContainer,

@@ -64,6 +64,12 @@
     <string name="vset_notice_bio_disabled">Biometric unlock disabled</string>
 
     <!-- AppSettingsScreen -->
+    <string name="settings_theme_title">Appearance</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_dynamic_color">Dynamic color (Material You)</string>
+    <string name="settings_dynamic_color_summary">Takes colors from your wallpaper; works on Android 12+ (older versions fall back to brand colors)</string>
     <string name="aset_title">App settings</string>
     <string name="aset_back">Back</string>
     <string name="aset_section_security">Security</string>

@@ -1,6 +1,8 @@
 package io.vaultx.app.ui.viewer
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -10,17 +12,23 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,8 +37,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,15 +52,19 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.request.ImageRequest
 import io.vaultx.app.AppContainer
 import io.vaultx.app.R
 import io.vaultx.app.core.media.VaultImageRef
 import io.vaultx.app.core.vault.MediaKind
 import kotlin.math.min
+import kotlinx.coroutines.launch
 
 /**
  * 图片查看器:同目录图片左右滑页 + 双指缩放/拖移(边界钳制)+ 双击定点缩放
@@ -66,13 +80,19 @@ fun ImageViewerScreen(
     entryId: String,
     onBack: () -> Unit = {},
 ) {
+    val context = LocalContext.current
     val unlocked = container.session.get(vaultId)
+    // 索引加载失败与空目录分开:失败显示错误态+重试,不再伪装成空列表
+    var indexFailed by remember { mutableStateOf(false) }
+    var retryTick by remember { mutableIntStateOf(0) }
     // 同目录全部图片(与网格一致的名称排序),翻页范围;
     // null=加载中——索引读盘走 IO 线程,不在组合时占主线程
     val images by androidx.compose.runtime.produceState<List<io.vaultx.app.core.vault.VaultEntry>?>(
-        initialValue = null, unlocked,
+        initialValue = null, unlocked, retryTick,
     ) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        value = null
+        indexFailed = false
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             unlocked?.let { u ->
                 runCatching {
                     val idx = container.vaultManager.loadIndex(u)
@@ -80,9 +100,11 @@ fun ImageViewerScreen(
                     idx.entries
                         .filter { it.kind == MediaKind.IMAGE && !it.isFolder && !it.isTrashed && it.parentId == me?.parentId && it.blobId != null }
                         .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
-                }.getOrDefault(emptyList())
+                }.getOrNull()
             } ?: emptyList()
         }
+        indexFailed = result == null
+        value = result ?: emptyList()
     }
     val imgs = images
 
@@ -97,16 +119,24 @@ fun ImageViewerScreen(
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    // 渲染用动画值:双击平滑过渡;捏合/拖动时 snapTo 即时跟手
+    val animScale = remember { Animatable(1f) }
+    val animOffsetX = remember { Animatable(0f) }
+    val animOffsetY = remember { Animatable(0f) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var imageSize by remember { mutableStateOf(Size.Unspecified) }
     var chromeVisible by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
 
-    // 翻页时重置缩放与适配尺寸
+    // 翻页时重置缩放与适配尺寸(动画值同步归位,避免过渡残留)
     if (pagerState != null) {
         LaunchedEffect(pagerState.currentPage) {
             scale = 1f
             offset = Offset.Zero
             imageSize = Size.Unspecified
+            scope.launch { animScale.snapTo(1f) }
+            scope.launch { animOffsetX.snapTo(0f) }
+            scope.launch { animOffsetY.snapTo(0f) }
         }
     }
 
@@ -137,7 +167,7 @@ fun ImageViewerScreen(
                 detectTapGestures(
                     onTap = { chromeVisible = !chromeVisible },
                     onDoubleTap = { tap ->
-                        // 双击:1x ↔ 2.5x;放大时保持点击点下的内容不动
+                        // 双击:1x ↔ 2.5x;放大时保持点击点下的内容不动,平滑过渡
                         val target = if (scale > 1.01f) 1f else 2.5f
                         val newOffset = if (target == 1f) {
                             Offset.Zero
@@ -146,8 +176,12 @@ fun ImageViewerScreen(
                             val pivot = Offset(containerSize.width / 2f, containerSize.height / 2f)
                             offset * factor + (tap - pivot) * (1 - factor)
                         }
+                        val cl = clamped(newOffset, target)
                         scale = target
-                        offset = clamped(newOffset, scale)
+                        offset = cl
+                        scope.launch { animScale.animateTo(target, tween(250)) }
+                        scope.launch { animOffsetX.animateTo(cl.x, tween(250)) }
+                        scope.launch { animOffsetY.animateTo(cl.y, tween(250)) }
                     },
                 )
             }
@@ -167,6 +201,10 @@ fun ImageViewerScreen(
                             val newScale = (scale * zoom).coerceIn(1f, 6f)
                             scale = newScale
                             offset = clamped(if (newScale > 1f) offset + pan else Offset.Zero, newScale)
+                            // 捏合保持即时跟手:动画值直接对齐,不做过渡
+                            scope.launch { animScale.snapTo(scale) }
+                            scope.launch { animOffsetX.snapTo(offset.x) }
+                            scope.launch { animOffsetY.snapTo(offset.y) }
                         }
                         event.changes.forEach { if (it.positionChanged()) it.consume() }
                     }
@@ -175,10 +213,29 @@ fun ImageViewerScreen(
         contentAlignment = Alignment.Center,
     ) {
         if (imgs == null) {
-            androidx.compose.material3.CircularProgressIndicator()
+            CircularProgressIndicator()
+        } else if (indexFailed) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.Filled.BrokenImage,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    stringResource(R.string.viewer_image_load_failed),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = { retryTick++ }) {
+                    Text(stringResource(R.string.viewer_retry))
+                }
+            }
         } else if (imgs.isEmpty()) {
             Text(
-                stringResource(R.string.iview_open_failed),
+                stringResource(R.string.viewer_image_empty),
                 color = Color.White,
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -191,22 +248,51 @@ fun ImageViewerScreen(
                 key = { imgs[it].id },
             ) { page ->
                 val e = imgs[page]
-                AsyncImage(
-                    model = VaultImageRef(vaultId, e.blobId!!, preferThumb = false),
-                    contentDescription = e.name,
-                    onSuccess = {
-                        if (pagerState.currentPage == page) imageSize = it.painter.intrinsicSize
-                    },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            translationX = offset.x
-                            translationY = offset.y
+                // 按显示需求解码:容器 2 倍、2048 上限——6x 放大不糊且内存有界(不用无界 ORIGINAL)
+                val decodePx = maxOf(min(containerSize.width, containerSize.height) * 2, 1024).coerceAtMost(2048)
+                var loadState by remember(e.id) { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(VaultImageRef(vaultId, e.blobId!!, preferThumb = false))
+                            .size(decodePx, decodePx)
+                            .build(),
+                        contentDescription = e.name,
+                        onState = { st ->
+                            loadState = st
+                            if (st is AsyncImagePainter.State.Success && pagerState.currentPage == page) {
+                                imageSize = st.painter.intrinsicSize
+                            }
                         },
-                    contentScale = ContentScale.Fit,
-                )
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = animScale.value
+                                scaleY = animScale.value
+                                translationX = animOffsetX.value
+                                translationY = animOffsetY.value
+                            },
+                        contentScale = ContentScale.Fit,
+                    )
+                    when (loadState) {
+                        is AsyncImagePainter.State.Loading -> CircularProgressIndicator()
+                        is AsyncImagePainter.State.Error -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Filled.BrokenImage,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(48.dp),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                stringResource(R.string.viewer_image_load_failed),
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        else -> Unit
+                    }
+                }
             }
         }
 

@@ -6,10 +6,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import io.vaultx.app.ui.nav.AppNav
+import io.vaultx.app.ui.theme.ThemeMode
 import io.vaultx.app.ui.theme.VaultXTheme
 import kotlinx.coroutines.launch
 
@@ -20,6 +24,8 @@ import kotlinx.coroutines.launch
 class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // SplashScreen API:冷启动用系统 splash(中性底+图标),替代旧主题黑底闪
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
@@ -40,7 +46,10 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
-            VaultXTheme {
+            val themeModeName by container.settings.themeMode.collectAsState()
+            val dynamicColor by container.settings.dynamicColor.collectAsState()
+            val themeMode = runCatching { ThemeMode.valueOf(themeModeName) }.getOrDefault(ThemeMode.SYSTEM)
+            VaultXTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
                 Surface(Modifier.fillMaxSize()) {
                     AppNav(container)
                 }

@@ -75,13 +75,22 @@ private val DarkColors = darkColorScheme(
     inversePrimary = Color(0xFF00585E),
 )
 
+/** 主题模式偏好:跟随系统 / 恒浅色 / 恒深色。 */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
 @Composable
 fun VaultXTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val darkTheme = when (themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
     val colorScheme = when {
+        // Material You:Android 12+ 从壁纸取色,与系统浑然一体;低版本回退品牌色
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -92,6 +101,7 @@ fun VaultXTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = VaultXTypography,
         motionScheme = MotionScheme.expressive(),
         content = content,
     )

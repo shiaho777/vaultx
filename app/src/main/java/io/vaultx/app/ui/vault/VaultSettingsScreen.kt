@@ -89,8 +89,21 @@ fun VaultSettingsScreen(
     val noticeDecoyRemoved = stringResource(R.string.vset_notice_decoy_removed)
     val noticeBioDisabled = stringResource(R.string.vset_notice_bio_disabled)
 
-    // 会话内存副本零 IO;无会话(异常路径)才在 IO 线程读盘兜底
-    var meta by remember { mutableStateOf(unlocked?.meta ?: container.vaultManager.metaOf(vaultId)) }
+    // 会话内存副本零 IO;无会话(异常路径)才在 IO 线程读盘兜底,不在组合期阻塞主线程
+    val diskMeta by androidx.compose.runtime.produceState<VaultMeta?>(null, vaultId) {
+        if (unlocked == null) {
+            value = withContext(Dispatchers.IO) { runCatching { container.vaultManager.metaOf(vaultId) }.getOrNull() }
+        }
+    }
+    var metaOverride by remember { mutableStateOf<VaultMeta?>(null) }
+    val meta = metaOverride ?: unlocked?.meta ?: diskMeta
+    if (meta == null) {
+        // 兜底读盘未完成(异常路径):短暂加载态
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.CircularProgressIndicator()
+        }
+        return
+    }
     var busy by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -122,10 +135,10 @@ fun VaultSettingsScreen(
         // 优先取会话内存副本(改密码/开关诱骗后引擎已同步更新),避免主线程读盘
         val u = container.session.get(vaultId)
         if (u != null) {
-            meta = u.meta
+            metaOverride = u.meta
         } else {
             scope.launch {
-                meta = withContext(Dispatchers.IO) { container.vaultManager.metaOf(vaultId) }
+                metaOverride = withContext(Dispatchers.IO) { container.vaultManager.metaOf(vaultId) }
             }
         }
     }

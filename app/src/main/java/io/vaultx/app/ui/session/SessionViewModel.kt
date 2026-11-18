@@ -26,6 +26,21 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
     private val _busy = MutableStateFlow<String?>(null)
     val busy: StateFlow<String?> = _busy
 
+    /**
+     * .vlt 导入队列由 VM 持有(不放组合 remember):Activity 重建时
+     * 组合态清零会让剩余文件静默不导入;VM 在导航栈内缓存,重建后仍在。
+     */
+    private val _vltQueue = MutableStateFlow<List<android.net.Uri>>(emptyList())
+    val vltQueue: StateFlow<List<android.net.Uri>> = _vltQueue
+
+    fun enqueueVlt(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        _vltQueue.value = _vltQueue.value + uris
+    }
+
+    fun popVlt() { _vltQueue.value = _vltQueue.value.drop(1) }
+    fun clearVltQueue() { _vltQueue.value = emptyList() }
+
     /** 协作式取消:导入/导出分块边界检查;忙碌期间界面显示取消按钮。 */
     private val cancelFlag = java.util.concurrent.atomic.AtomicBoolean(false)
     fun cancelBusy() { cancelFlag.set(true) }
@@ -175,15 +190,19 @@ class SessionViewModel(private val container: AppContainer) : ViewModel() {
 
     fun rename(storedName: String, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            container.sessionManager.rename(storedName, newName)
-            _files.value = container.sessionManager.listFiles()
+            runCatching {
+                container.sessionManager.rename(storedName, newName)
+                _files.value = container.sessionManager.listFiles()
+            }.onFailure { _error.value = container.context.getString(R.string.vset_error_generic, it.message) }
         }
     }
 
     fun delete(storedName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            container.sessionManager.delete(storedName)
-            _files.value = container.sessionManager.listFiles()
+            runCatching {
+                container.sessionManager.delete(storedName)
+                _files.value = container.sessionManager.listFiles()
+            }.onFailure { _error.value = container.context.getString(R.string.vset_error_generic, it.message) }
         }
     }
 

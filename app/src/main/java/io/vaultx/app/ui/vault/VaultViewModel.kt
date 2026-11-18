@@ -288,7 +288,11 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
-                val idx = container.vaultManager.loadIndex(u)
+                val idx = runCatching { container.vaultManager.loadIndex(u) }
+                    .getOrElse {
+                        _error.value = str(R.string.vm_error_index_load, it.message)
+                        return@withLock
+                    }
                 var changed = false
                 idx.entries.replaceAll { e ->
                     if (e.id in ids && e.starred != starred) { changed = true; e.copy(starred = starred) } else e
@@ -304,7 +308,11 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
-                val idx = container.vaultManager.loadIndex(u)
+                val idx = runCatching { container.vaultManager.loadIndex(u) }
+                    .getOrElse {
+                        _error.value = str(R.string.vm_error_index_load, it.message)
+                        return@withLock
+                    }
                 val i = idx.entries.indexOfFirst { it.id == id }
                 if (i < 0) return@withLock
                 val e = idx.entries[i]
@@ -324,7 +332,11 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
-                val idx = container.vaultManager.loadIndex(u)
+                val idx = runCatching { container.vaultManager.loadIndex(u) }
+                    .getOrElse {
+                        _error.value = str(R.string.vm_error_index_load, it.message)
+                        return@withLock
+                    }
                 val i = idx.entries.indexOfFirst { it.id == id }
                 if (i < 0) return@withLock
                 val e = idx.entries[i]
@@ -595,7 +607,11 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
-                val idx = container.vaultManager.loadIndex(u)
+                val idx = runCatching { container.vaultManager.loadIndex(u) }
+                    .getOrElse {
+                        _error.value = str(R.string.vm_error_index_load, it.message)
+                        return@withLock
+                    }
                 val i = idx.entries.indexOfFirst { it.id == id }
                 val trimmed = newName.trim()
                 if (i < 0 || trimmed.isEmpty()) return@withLock
@@ -613,7 +629,11 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
-                val idx = container.vaultManager.loadIndex(u)
+                val idx = runCatching { container.vaultManager.loadIndex(u) }
+                    .getOrElse {
+                        _error.value = str(R.string.vm_error_index_load, it.message)
+                        return@withLock
+                    }
                 // 防环:目标不能是被移条目自身或其子孙
                 val forbidden = ids.flatMap { idx.descendantIds(it) }.toSet() + ids
                 if (targetFolderId != null && targetFolderId in forbidden) {
@@ -795,7 +815,11 @@ class VaultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             indexMutex.withLock {
                 val u = unlocked ?: return@withLock
-                val idx = container.vaultManager.loadIndex(u)
+                val idx = runCatching { container.vaultManager.loadIndex(u) }
+                    .getOrElse {
+                        _error.value = str(R.string.vm_error_index_load, it.message)
+                        return@withLock
+                    }
                 idx.addEntry(
                     name = container.transferEngine.uniqueName(trimmed, idx, currentFolderId),
                     kind = MediaKind.FOLDER,

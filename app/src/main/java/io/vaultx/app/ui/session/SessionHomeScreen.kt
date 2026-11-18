@@ -93,7 +93,8 @@ fun SessionHomeScreen(
     var textFor by remember { mutableStateOf<SessionFile?>(null) }
     var exitConfirm by remember { mutableStateOf(false) }
     // .vlt 相关(多个 .vlt 排队逐个输密码)
-    var vltQueue by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    // 队列在 VM 里(组合 remember 会在 Activity 重建时清零,剩余 .vlt 静默丢失)
+    val vltQueue by vm.vltQueue.collectAsState()
     var vltExportFor by remember { mutableStateOf<SessionFile?>(null) }
     var plainExportFor by remember { mutableStateOf<SessionFile?>(null) }
     var pendingExportUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -106,7 +107,7 @@ fun SessionHomeScreen(
         val sources = uris.map { it to container.safTransfer.fileSource(it) }
         val (vlt, plain) = sources.partition { it.second.name.endsWith(".vlt", ignoreCase = true) }
         if (plain.isNotEmpty()) vm.import(plain.map { it.second })
-        if (vlt.isNotEmpty()) vltQueue = vltQueue + vlt.map { it.first }
+        if (vlt.isNotEmpty()) vm.enqueueVlt(vlt.map { it.first })
     }
 
     // 文件夹导入:树源递归拍平进会话目录(平铺命名空间,重名自动消解)
@@ -298,7 +299,7 @@ fun SessionHomeScreen(
         var err by remember(uri) { mutableStateOf<String?>(null) }
         val thisFile = stringResource(R.string.sess_this_file)
         AlertDialog(
-            onDismissRequest = { vltQueue = vltQueue.drop(1) },
+            onDismissRequest = { vm.popVlt() },
             title = { Text(stringResource(R.string.sess_open_vlt_title)) },
             text = {
                 Column(Modifier.imePadding()) {
@@ -319,11 +320,11 @@ fun SessionHomeScreen(
                 TextButton(onClick = {
                     vm.importVlt(container.safTransfer.fileSource(uri), pw.toCharArray()) { failure ->
                         // null = 成功/用户取消 → 弹下一个;非空 = 真实失败原因,可重试或跳过
-                        if (failure == null) vltQueue = vltQueue.drop(1) else err = failure
+                        if (failure == null) vm.popVlt() else err = failure
                     }
                 }) { Text(stringResource(R.string.sess_open)) }
             },
-            dismissButton = { TextButton(onClick = { vltQueue = vltQueue.drop(1) }) { Text(stringResource(R.string.sess_skip)) } },
+            dismissButton = { TextButton(onClick = { vm.popVlt() }) { Text(stringResource(R.string.sess_skip)) } },
         )
     }
 

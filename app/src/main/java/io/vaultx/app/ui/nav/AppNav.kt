@@ -98,6 +98,7 @@ fun AppNav(container: AppContainer, modifier: Modifier = Modifier) {
                 LockedHomeScreen(
                     container = container,
                     onOpenVault = { backStack.add(Route.VaultHome(it)) },
+                    onBack = { backStack.removeLastOrNull() },
                 )
             }
             entry<Route.VaultHome> { key ->

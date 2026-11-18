@@ -19,6 +19,7 @@ import java.nio.channels.SeekableByteChannel
  * 因此一个实例即可服务播放列表(连播),不必每条媒体建一个工厂。
  * [lengthOf] 给明文长度(索引里的 sizeBytes)。
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class VaultDataSource(
     private val unlocked: UnlockedVault,
     private val vaultManager: VaultManager,

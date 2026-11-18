@@ -17,4 +17,5 @@
     <string name="trash_select_all">全选</string>
     <string name="trash_selected_count">已选 %1$d 项</string>
     <string name="trash_back">返回</string>
+    <string name="trash_days_left">剩 %1$d 天</string>
 </resources>

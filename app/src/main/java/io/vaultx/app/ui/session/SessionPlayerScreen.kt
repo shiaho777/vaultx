@@ -57,20 +57,31 @@ fun SessionPlayerScreen(
     onBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    // file() 对非法名直接 require 抛错——落到"文件已不存在"而不是崩
-    val file = remember(storedName) {
-        runCatching { container.sessionManager.file(storedName) }.getOrNull()
+    // file() 对非法名直接 require 抛错——落到"文件已不存在"而不是崩;
+    // 存在性检查与目录扫描都是磁盘 IO:放 IO 线程异步取,不在组合期阻塞主线程
+    val probe by androidx.compose.runtime.produceState<Pair<java.io.File?, MediaKind>?>(null, storedName) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val f = runCatching { container.sessionManager.file(storedName) }.getOrNull()
+            val k = runCatching {
+                container.sessionManager.listFiles().firstOrNull { it.storedName == storedName }?.kind
+            }.getOrNull() ?: MediaKind.OTHER
+            (if (f != null && f.isFile) f else null) to k
+        }
     }
-    val fileMissing = file == null || !file.isFile
-    val kind = remember(storedName) {
-        container.sessionManager.listFiles().firstOrNull { it.storedName == storedName }?.kind
-            ?: MediaKind.OTHER
-    }
+    val file = probe?.first
+    val kind = probe?.second ?: MediaKind.OTHER
+    val fileMissing = probe != null && file == null
     var playError by remember { mutableStateOf<String?>(null) }
     val playErrorTemplate = stringResource(R.string.splay_play_error)
 
     Box(Modifier.fillMaxSize()) {
         when {
+            probe == null -> {
+                // 探测未完成:短暂加载态,避免闪"文件已不存在"
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    androidx.compose.material3.CircularProgressIndicator()
+                }
+            }
             fileMissing -> {
                 Column(
                     Modifier.fillMaxSize().padding(32.dp),

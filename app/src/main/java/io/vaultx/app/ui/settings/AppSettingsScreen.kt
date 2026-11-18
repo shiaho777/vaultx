@@ -23,6 +23,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.vaultx.app.AppContainer
 import io.vaultx.app.R
+import io.vaultx.app.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -50,6 +54,8 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val autoLock by container.settings.autoLockSeconds.collectAsState()
     val flagSecure by container.settings.flagSecure.collectAsState()
+    val themeMode by container.settings.themeMode.collectAsState()
+    val dynamicColor by container.settings.dynamicColor.collectAsState()
 
     val lockOptions = listOf(
         0 to stringResource(R.string.aset_lock_immediately),
@@ -82,6 +88,45 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 .padding(horizontal = 20.dp),
         ) {
             Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.settings_theme_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+
+            // 主题三选:坏数据/未知值回落跟随系统
+            val themeOptions = listOf(
+                ThemeMode.SYSTEM to stringResource(R.string.settings_theme_system),
+                ThemeMode.LIGHT to stringResource(R.string.settings_theme_light),
+                ThemeMode.DARK to stringResource(R.string.settings_theme_dark),
+            )
+            val selectedTheme = runCatching { ThemeMode.valueOf(themeMode) }.getOrDefault(ThemeMode.SYSTEM)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                themeOptions.forEachIndexed { i, (mode, label) ->
+                    SegmentedButton(
+                        selected = selectedTheme == mode,
+                        onClick = { scope.launch { container.settings.setThemeMode(mode.name) } },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = themeOptions.size),
+                    ) { Text(label) }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_dynamic_color), style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(R.string.settings_dynamic_color_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = dynamicColor,
+                    onCheckedChange = { scope.launch { container.settings.setDynamicColor(it) } },
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Text(stringResource(R.string.aset_section_security), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
 

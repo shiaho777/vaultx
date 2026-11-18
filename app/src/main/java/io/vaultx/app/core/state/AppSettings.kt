@@ -59,6 +59,24 @@ class AppSettings(context: Context, scope: CoroutineScope) {
         store.edit { it[KEY_VIEW_MODE] = mode }
     }
 
+    /** 主题模式("SYSTEM"/"LIGHT"/"DARK")。 */
+    val themeMode: StateFlow<String> = store.data
+        .map { it[KEY_THEME_MODE] ?: DEFAULT_THEME_MODE }
+        .stateIn(scope, SharingStarted.Eagerly, DEFAULT_THEME_MODE)
+
+    suspend fun setThemeMode(mode: String) {
+        store.edit { it[KEY_THEME_MODE] = mode }
+    }
+
+    /** Material You 动态取色(Android 12+;低版本自动回退品牌色)。默认开。 */
+    val dynamicColor: StateFlow<Boolean> = store.data
+        .map { it[KEY_DYNAMIC_COLOR] ?: true }
+        .stateIn(scope, SharingStarted.Eagerly, true)
+
+    suspend fun setDynamicColor(enabled: Boolean) {
+        store.edit { it[KEY_DYNAMIC_COLOR] = enabled }
+    }
+
     /** 首次启动引导是否已完成。 */
     val onboardingDone: StateFlow<Boolean> = store.data
         .map { it[KEY_ONBOARDING_DONE] ?: false }
@@ -91,6 +109,8 @@ class AppSettings(context: Context, scope: CoroutineScope) {
         private val KEY_VIEW_MODE = stringPreferencesKey("view_mode")
         private val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
         private val KEY_BACKUP_TIMES = stringPreferencesKey("backup_times")
+        private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+        private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
 
         /** "vaultId=epochMs;vaultId=epochMs" 解码;vaultId 是 UUID,不含分隔符。坏数据回落空表。 */
         private fun decodeBackupTimes(raw: String?): Map<String, Long> {
@@ -109,5 +129,6 @@ class AppSettings(context: Context, scope: CoroutineScope) {
         val DEFAULT_FLAG_SECURE = !BuildConfig.DEBUG
         const val DEFAULT_SORT_BY = "NAME"
         const val DEFAULT_VIEW_MODE = "GRID"
+        const val DEFAULT_THEME_MODE = "SYSTEM"
     }
 }

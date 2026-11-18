@@ -365,9 +365,15 @@ fun LockedHomeScreen(
 
     // ---------- 解锁对话框 ----------
     unlockTarget?.let { meta ->
+        // bio.wrap 探测是文件读:放 IO 线程异步取,不在组合期阻塞主线程
+        val hasBio by androidx.compose.runtime.produceState(false, meta.vaultId) {
+            value = withContext(Dispatchers.IO) {
+                runCatching { container.vaultManager.readBioWrap(meta.vaultId) != null }.getOrDefault(false)
+            }
+        }
         UnlockDialog(
             meta = meta,
-            hasBio = container.vaultManager.readBioWrap(meta.vaultId) != null,
+            hasBio = hasBio,
             onBiometric = { biometricUnlock(meta); unlockTarget = null },
             onDismiss = { unlockTarget = null },
             onUnlock = { password, reportError ->

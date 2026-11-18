@@ -17,4 +17,5 @@
     <string name="trash_select_all">Select all</string>
     <string name="trash_selected_count">%1$d selected</string>
     <string name="trash_back">Back</string>
+    <string name="trash_days_left">%1$d days left</string>
 </resources>

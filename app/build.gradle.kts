@@ -66,6 +66,13 @@ android {
         buildConfig = true
     }
 
+    lint {
+        // 回调内用 context.getString 取一次性文案(错误提示等)是既有模式,
+        // 不参与重组、无配置过期风险;该检查对此类用法误报,降级为警告
+        warning += "LocalContextGetResourceValueCall"
+        abortOnError = true
+    }
+
     packaging {
         resources {
             excludes += setOf(
@@ -98,6 +105,7 @@ dependencies {
     implementation(libs.lifecycle.process)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
+    implementation(libs.core.splashscreen)
     implementation(libs.datastore.preferences)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)

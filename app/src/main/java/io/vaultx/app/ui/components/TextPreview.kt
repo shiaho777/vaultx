@@ -13,6 +13,8 @@ val TEXT_EXTS = setOf(
 
 const val TEXT_PREVIEW_MAX_BYTES: Long = 512 * 1024
 
+private val BOM = Char(0xFEFF)
+
 /** 文件名+大小是否适合内嵌文本预览。 */
 fun isTextFileName(name: String, sizeBytes: Long): Boolean =
     name.substringAfterLast('.', "").lowercase() in TEXT_EXTS &&
@@ -28,5 +30,6 @@ fun decodePreviewText(bytes: ByteArray): String {
     } catch (_: CharacterCodingException) {
         String(bytes, Charset.forName("GBK"))
     }
-    return text.removePrefix("﻿")
+    // U+FEFF 用字符码构造:字面 BOM 嵌在源码里会被 lint 判为文件中段字节序标记
+    return text.removePrefix(BOM.toString())
 }

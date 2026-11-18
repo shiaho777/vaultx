@@ -3,6 +3,12 @@
     <!-- ImageViewerScreen -->
     <string name="iview_open_failed">Cannot open this file</string>
     <string name="iview_back">Back</string>
+    <string name="viewer_image_load_failed">Failed to load image</string>
+    <string name="viewer_image_empty">No images in this folder</string>
+    <string name="viewer_retry">Retry</string>
+    <string name="viewer_brightness">Brightness %1$d%%</string>
+    <string name="viewer_volume">Volume %1$d%%</string>
+    <string name="viewer_seek">Seek to %1$s</string>
 
     <!-- VideoPlayerScreen -->
     <string name="vplay_error">Playback failed: %1$s</string>
