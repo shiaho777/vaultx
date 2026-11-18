@@ -1,0 +1,98 @@
+name: Bug report
+description: Report something that is broken or behaves incorrectly in VaultX
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+
+        **Security vulnerability?** Do not open a public issue — follow [SECURITY.md](https://github.com/shiaho777/vaultx/blob/main/SECURITY.md) to report it privately.
+
+        **Never include** real vault passwords, decrypted private files, or screenshots showing sensitive content.
+  - type: input
+    id: version
+    attributes:
+      label: VaultX version
+      description: Shown in app settings / about. Only 0.2.x is supported; please upgrade first if you are on 0.1.x.
+      placeholder: "e.g. 0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Android version and device
+      description: Android OS version and device model.
+      placeholder: "e.g. Android 14, Pixel 6"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, numbered steps that trigger the problem.
+      placeholder: |
+        1. Open a vault
+        2. Import a folder
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened. Include error messages or crash logs if available.
+    validations:
+      required: true
+  - type: dropdown
+    id: data-loss
+    attributes:
+      label: Does this involve loss of encrypted data?
+      description: Missing entries, unreadable vaults, failed imports/exports that destroy data, etc.
+      options:
+        - "No"
+        - "Yes — data appears to be lost or unreadable"
+        - "Not sure"
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        > ## ⚠️ If you answered "Yes" or "Not sure" above
+        > **VaultX has NO password recovery.** Before reporting data loss:
+        > 1. **Verify your password is correct** — a wrong password (including the decoy password) opens a different vault or fails to unlock; it does not mean data is gone.
+        > 2. Do **not** uninstall the app, clear app data, or factory-reset the device — that permanently destroys all encrypted data.
+        > 3. Do **not** use emergency wipe.
+        > Then describe below exactly what you see, so we can determine whether data is actually lost or just inaccessible.
+  - type: textarea
+    id: data-loss-details
+    attributes:
+      label: Data-loss details (if applicable)
+      description: What data is affected, what you did right before noticing, and whether you have a `.fvault` backup or `.vlt` exports.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that may help — vault mode (locked/session), biometric/decoy enabled, frequency, workarounds.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go through SECURITY.md privately).
+          required: true
+        - label: I have not included passwords or sensitive private content in this report.
+          required: true

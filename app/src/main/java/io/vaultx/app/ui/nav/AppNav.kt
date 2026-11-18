@@ -20,6 +20,7 @@ import io.vaultx.app.AppContainer
 import io.vaultx.app.ui.mode.ModeSelectScreen
 import io.vaultx.app.ui.session.SessionHomeScreen
 import io.vaultx.app.ui.session.SessionPlayerScreen
+import io.vaultx.app.ui.settings.AboutScreen
 import io.vaultx.app.ui.settings.AppSettingsScreen
 import io.vaultx.app.ui.vault.LockedHomeScreen
 import io.vaultx.app.ui.vault.VaultHomeScreen
@@ -113,7 +114,14 @@ fun AppNav(container: AppContainer, modifier: Modifier = Modifier) {
                 )
             }
             entry<Route.AppSettings> {
-                AppSettingsScreen(container = container, onBack = { backStack.removeLastOrNull() })
+                AppSettingsScreen(
+                    container = container,
+                    onBack = { backStack.removeLastOrNull() },
+                    onAbout = { backStack.add(Route.About) },
+                )
+            }
+            entry<Route.About> {
+                AboutScreen(onBack = { backStack.removeLastOrNull() })
             }
             entry<Route.LockedHome> {
                 LockedHomeScreen(

@@ -9,10 +9,14 @@ import org.bouncycastle.crypto.params.Argon2Parameters
  * 密码 → KEK 的 memory-hard 派生(Argon2id)。
  *
  * 双实现:
- * - **native libsodium**(lazysodium-android):设备上比纯 JVM 快 3~10 倍,
- *   解锁体感与高参数档位的可用性都靠它;密码字节用完在 native 侧可控擦除。
- * - **BouncyCastle 纯 JVM 兜底**:native 加载失败(异常设备/单测环境)时自动回退,
- *   慢但正确——两条路径输出逐字节一致(RFC 9106 同参同果),旧库无缝解锁。
+ * - **native libsodium**(lazysodium-android):单 lane(p=1)时比纯 JVM 快数倍。
+ * - **BouncyCastle 纯 JVM**:标准 RFC 9106 实现,任意并行度都正确。
+ *
+ * ⚠ 关键约束(实测裁决,见 CryptoTest.kdfNativeAndBouncyCastleByteIdentical):
+ * lazysodium 5.2.0 内嵌的 libsodium 构建**未启用多线程**(无 pthread_create),
+ * crypto_pwhash 在 p>1 时静默按 p=1 计算——输出与标准 Argon2id 不同!
+ * 因此 **p>1 一律走 BouncyCastle**;native 只服务 p=1(两实现已验证逐字节一致)。
+ * 绝不能让"快"破坏"同参同果"——那会让旧库在新版本上解不开。
  *
  * 输入 CharArray 由调用方持有;本函数内部拷贝一份,用完即清。
  */
@@ -20,9 +24,18 @@ object Argon2idKdf {
 
     const val KEY_LENGTH = 32
 
-    /** native 后端惰性初始化;失败只试一次,之后永久走 BC(避免每次解锁都撞加载异常)。 */
+    /**
+     * native 后端惰性初始化;失败只试一次,之后永久走 BC(避免每次解锁都撞加载异常)。
+     * lazysodium 5.2.0 字节码是 Java 21(major 65):JDK 17 环境类加载即抛
+     * UnsupportedClassVersionError——它是 Error 不是 Exception,runCatching 兜不住,
+     * 会把整个 KDF 静态初始化炸掉。必须显式 catch Throwable。
+     */
     private val native: com.goterl.lazysodium.SodiumAndroid? by lazy {
-        runCatching { com.goterl.lazysodium.SodiumAndroid() }.getOrNull()
+        try {
+            com.goterl.lazysodium.SodiumAndroid()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /**
@@ -30,8 +43,11 @@ object Argon2idKdf {
      * @throws KdfException 内存不足/参数非法等派生失败(把 Error 降级为可恢复异常)
      */
     fun derive(password: CharArray, salt: ByteArray, params: KdfParams): ByteArray {
-        native?.let { sodium ->
-            deriveNative(sodium, password, salt, params)?.let { return it }
+        // p>1 时 native 构建静默退化为 p=1(输出错误),必须走标准实现
+        if (params.parallelism == 1) {
+            native?.let { sodium ->
+                deriveNative(sodium, password, salt, params)?.let { return it }
+            }
         }
         return deriveBouncyCastle(password, salt, params)
     }

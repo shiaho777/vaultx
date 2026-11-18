@@ -1,5 +1,6 @@
 package io.vaultx.app.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,7 +52,7 @@ import kotlinx.coroutines.launch
 /** 应用设置:后台自动锁定时长 + 防截屏。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
+fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit, onAbout: () -> Unit) {
     val scope = rememberCoroutineScope()
     val autoLock by container.settings.autoLockSeconds.collectAsState()
     val flagSecure by container.settings.flagSecure.collectAsState()
@@ -177,6 +179,28 @@ fun AppSettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+            // 关于入口:版本、许可、社区与隐私(置于危险区之前)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onAbout)
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.about_entry_title), style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(R.string.about_entry_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Text(stringResource(R.string.aset_danger_zone), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)

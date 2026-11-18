@@ -48,6 +48,38 @@ class CryptoTest {
         assertFalse(a.contentEquals(b))
     }
 
+    /**
+     * 双实现一致性:Argon2idKdf 在 native 可用时走 libsodium,否则回退 BouncyCastle。
+     * RFC 9106 同参同果——两条路径必须逐字节一致,否则旧库换设备/换环境就解不开。
+     * 这里直接调 BouncyCastle 参考实现做锚点:无论本端走哪条路径,输出都必须与它一致。
+     * JDK21(native 路径)与 JDK17(回退路径)下各跑一遍,两条路径都被覆盖。
+     */
+    @Test
+    fun kdfNativeAndBouncyCastleByteIdentical() {
+        val salt = ByteArray(16) { 0x02 }
+        val pw = "parity-check-password-123".toCharArray()
+        fun bcReference(p: KdfParams): ByteArray =
+            org.bouncycastle.crypto.generators.Argon2BytesGenerator().let { gen ->
+                gen.init(
+                    org.bouncycastle.crypto.params.Argon2Parameters.Builder(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_id)
+                        .withVersion(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_VERSION_13)
+                        .withSalt(salt)
+                        .withMemoryAsKB(p.memoryKiB)
+                        .withIterations(p.iterations)
+                        .withParallelism(p.parallelism)
+                        .build(),
+                )
+                ByteArray(32).also { gen.generateBytes(pw.copyOf(), it) }
+            }
+        // p=1:native 路径(若可用)必须与 BC 一致
+        val p1 = KdfParams(memoryKiB = 8 * 1024, iterations = 2, parallelism = 1)
+        assertArrayEquals("p=1 native/BC must be byte-identical", bcReference(p1), Argon2idKdf.derive(pw.copyOf(), salt, p1))
+        // p=2:lazysodium 内嵌构建无多线程,p>1 会静默按 p=1 算(输出错误)——
+        // derive 必须路由到 BC。此断言在 native 可用的 JDK21 上同样必须成立。
+        val p2 = KdfParams(memoryKiB = 8 * 1024, iterations = 2, parallelism = 2)
+        assertArrayEquals("p=2 must use standard Argon2id (RFC 9106)", bcReference(p2), Argon2idKdf.derive(pw.copyOf(), salt, p2))
+    }
+
     // ---------------- KeyWrap ----------------
 
     @Test

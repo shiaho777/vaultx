@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AboutScreen -->
+    <string name="about_title">关于</string>
+    <string name="about_back">返回</string>
+    <string name="about_close">关闭</string>
+    <string name="about_entry_title">关于 VaultX</string>
+    <string name="about_entry_summary">版本、许可、社区与隐私</string>
+    <string name="about_version">版本 %1$s (%2$d)</string>
+    <string name="about_tagline">离线、零网络的加密保险库，守护你的照片、视频与音频。</string>
+    <string name="about_link_error">没有可打开此链接的应用</string>
+
+    <!-- License -->
+    <string name="about_section_license">许可</string>
+    <string name="about_license_title">开源协议（GPLv3）</string>
+    <string name="about_license_summary">基于 GNU GPL v3.0 的自由软件</string>
+    <string name="about_license_dialog_title">GNU GPLv3</string>
+    <string name="about_license_dialog_body">VaultX 是基于 GNU 通用公共许可证第三版（GPLv3）的自由软件。你可以自由使用、研究、分享和修改它。如果你分发 VaultX 或其修改版本，必须继续以 GPLv3 授权，并提供完整的对应源代码。\n\n以上仅为摘要——许可以仓库 LICENSE 文件中的全文为准。</string>
+    <string name="about_license_view_full">查看 LICENSE</string>
+    <string name="about_third_party_title">第三方许可</string>
+    <string name="about_third_party_summary">内置开源组件及其许可证清单</string>
+
+    <!-- Community & support -->
+    <string name="about_section_community">社区与支持</string>
+    <string name="about_github_title">GitHub 仓库</string>
+    <string name="about_github_summary">源代码、发布版本与路线图</string>
+    <string name="about_issues_title">反馈与问题</string>
+    <string name="about_issues_summary">报告缺陷或提出功能建议</string>
+    <string name="about_contributing_title">贡献指南</string>
+    <string name="about_contributing_summary">如何构建、测试与提交改动</string>
+    <string name="about_contributors_title">贡献者</string>
+    <string name="about_contributors_summary">感谢每一位贡献者</string>
+    <string name="about_changelog_title">更新日志</string>
+    <string name="about_changelog_summary">每个版本的变更内容</string>
+    <string name="about_security_title">安全政策</string>
+    <string name="about_security_summary">如何私下报告安全漏洞</string>
+
+    <!-- Privacy -->
+    <string name="about_section_privacy">隐私</string>
+    <string name="about_privacy_no_collection">零数据收集：无统计、无跟踪、无广告、无账号。</string>
+    <string name="about_privacy_no_network">零网络访问：应用不持有 INTERNET 权限，绝不联网。本页链接由你自己的浏览器打开。</string>
+    <string name="about_privacy_local_storage">你的文件和密钥只保存在本设备的应用私有存储中。</string>
+    <string name="about_privacy_no_recovery">无密码找回：忘记主密码后，任何人都无法恢复你的数据。</string>
+    <string name="about_privacy_backup">备份责任在你：请妥善保管加密备份——没有备份时丢失设备即丢失数据。</string>
+
+    <!-- Author (configurable slot) -->
+    <string name="about_section_author">作者</string>
+    <string name="about_author_summary">VaultX 的创建者与维护者</string>
+</resources>

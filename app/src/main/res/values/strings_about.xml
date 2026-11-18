@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AboutScreen -->
+    <string name="about_title">About</string>
+    <string name="about_back">Back</string>
+    <string name="about_close">Close</string>
+    <string name="about_entry_title">About VaultX</string>
+    <string name="about_entry_summary">Version, license, community and privacy</string>
+    <string name="about_version">Version %1$s (%2$d)</string>
+    <string name="about_tagline">An offline, zero-network encrypted vault for your photos, videos and audio.</string>
+    <string name="about_link_error">No app available to open this link</string>
+
+    <!-- License -->
+    <string name="about_section_license">License</string>
+    <string name="about_license_title">Open source license (GPLv3)</string>
+    <string name="about_license_summary">Free software under the GNU GPL v3.0</string>
+    <string name="about_license_dialog_title">GNU GPLv3</string>
+    <string name="about_license_dialog_body">VaultX is free software licensed under the GNU General Public License v3.0 (GPLv3). You may use, study, share and modify it. If you distribute VaultX or a modified version, you must keep it under GPLv3 and make the complete corresponding source code available.\n\nThis is a summary only — the full license text in the repository\'s LICENSE file is authoritative.</string>
+    <string name="about_license_view_full">View LICENSE</string>
+    <string name="about_third_party_title">Third-party licenses</string>
+    <string name="about_third_party_summary">Bundled open source components and their licenses</string>
+
+    <!-- Community & support -->
+    <string name="about_section_community">Community &amp; support</string>
+    <string name="about_github_title">GitHub repository</string>
+    <string name="about_github_summary">Source code, releases and roadmap</string>
+    <string name="about_issues_title">Feedback &amp; issues</string>
+    <string name="about_issues_summary">Report a bug or request a feature</string>
+    <string name="about_contributing_title">Contributing guide</string>
+    <string name="about_contributing_summary">How to build, test and submit changes</string>
+    <string name="about_contributors_title">Contributors</string>
+    <string name="about_contributors_summary">Thanks to everyone who contributes</string>
+    <string name="about_changelog_title">Changelog</string>
+    <string name="about_changelog_summary">What changed in each release</string>
+    <string name="about_security_title">Security policy</string>
+    <string name="about_security_summary">How to report vulnerabilities privately</string>
+
+    <!-- Privacy -->
+    <string name="about_section_privacy">Privacy</string>
+    <string name="about_privacy_no_collection">Zero data collection: no analytics, no tracking, no ads, no accounts.</string>
+    <string name="about_privacy_no_network">Zero network access: the app holds no INTERNET permission and never connects to the internet. Links on this page open in your own browser.</string>
+    <string name="about_privacy_local_storage">Your files and keys stay only in the app\'s private storage on this device.</string>
+    <string name="about_privacy_no_recovery">No password recovery: if you forget the master password, no one can recover your data.</string>
+    <string name="about_privacy_backup">Backups are your responsibility: keep encrypted backups safe — losing the device without a backup means losing the data.</string>
+
+    <!-- Author (configurable slot) -->
+    <string name="about_section_author">Author</string>
+    <string name="about_author_handle" translatable="false">\@shiaho777</string>
+    <string name="about_author_summary">Creator and maintainer of VaultX</string>
+
+    <!-- External URLs (opened via system browser, never fetched by the app) -->
+    <string name="about_url_repo" translatable="false">https://github.com/shiaho777/vaultx</string>
+    <string name="about_url_license" translatable="false">https://github.com/shiaho777/vaultx/blob/main/LICENSE</string>
+    <string name="about_url_issues" translatable="false">https://github.com/shiaho777/vaultx/issues/new/choose</string>
+    <string name="about_url_contributing" translatable="false">https://github.com/shiaho777/vaultx/blob/main/CONTRIBUTING.md</string>
+    <string name="about_url_contributors" translatable="false">https://github.com/shiaho777/vaultx/graphs/contributors</string>
+    <string name="about_url_changelog" translatable="false">https://github.com/shiaho777/vaultx/blob/main/CHANGELOG.md</string>
+    <string name="about_url_security" translatable="false">https://github.com/shiaho777/vaultx/blob/main/SECURITY.md</string>
+    <string name="about_url_author" translatable="false">https://github.com/shiaho777</string>
+</resources>
