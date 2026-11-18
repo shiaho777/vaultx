@@ -58,21 +58,26 @@ class CryptoTest {
     fun kdfNativeAndBouncyCastleByteIdentical() {
         val salt = ByteArray(16) { 0x02 }
         val pw = "parity-check-password-123".toCharArray()
-        val p = KdfParams(memoryKiB = 8 * 1024, iterations = 2, parallelism = 2)
-        val actual = Argon2idKdf.derive(pw.copyOf(), salt, p)
-        val reference = org.bouncycastle.crypto.generators.Argon2BytesGenerator().let { gen ->
-            gen.init(
-                org.bouncycastle.crypto.params.Argon2Parameters.Builder(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_id)
-                    .withVersion(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_VERSION_13)
-                    .withSalt(salt)
-                    .withMemoryAsKB(p.memoryKiB)
-                    .withIterations(p.iterations)
-                    .withParallelism(p.parallelism)
-                    .build(),
-            )
-            ByteArray(32).also { gen.generateBytes(pw.copyOf(), it) }
-        }
-        assertArrayEquals("native/BC paths must be byte-identical (RFC 9106)", reference, actual)
+        fun bcReference(p: KdfParams): ByteArray =
+            org.bouncycastle.crypto.generators.Argon2BytesGenerator().let { gen ->
+                gen.init(
+                    org.bouncycastle.crypto.params.Argon2Parameters.Builder(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_id)
+                        .withVersion(org.bouncycastle.crypto.params.Argon2Parameters.ARGON2_VERSION_13)
+                        .withSalt(salt)
+                        .withMemoryAsKB(p.memoryKiB)
+                        .withIterations(p.iterations)
+                        .withParallelism(p.parallelism)
+                        .build(),
+                )
+                ByteArray(32).also { gen.generateBytes(pw.copyOf(), it) }
+            }
+        // p=1:native 路径(若可用)必须与 BC 一致
+        val p1 = KdfParams(memoryKiB = 8 * 1024, iterations = 2, parallelism = 1)
+        assertArrayEquals("p=1 native/BC must be byte-identical", bcReference(p1), Argon2idKdf.derive(pw.copyOf(), salt, p1))
+        // p=2:lazysodium 内嵌构建无多线程,p>1 会静默按 p=1 算(输出错误)——
+        // derive 必须路由到 BC。此断言在 native 可用的 JDK21 上同样必须成立。
+        val p2 = KdfParams(memoryKiB = 8 * 1024, iterations = 2, parallelism = 2)
+        assertArrayEquals("p=2 must use standard Argon2id (RFC 9106)", bcReference(p2), Argon2idKdf.derive(pw.copyOf(), salt, p2))
     }
 
     // ---------------- KeyWrap ----------------
