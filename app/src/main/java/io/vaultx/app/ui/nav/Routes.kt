@@ -13,6 +13,10 @@ sealed interface Route : NavKey {
     @Serializable
     data object AppSettings : Route
 
+    /** 关于:版本、许可、社区与隐私(全部离线内置)。 */
+    @Serializable
+    data object About : Route
+
     /** 有锁模式:库列表。 */
     @Serializable
     data object LockedHome : Route

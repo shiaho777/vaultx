@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | ✅        |
+| 0.2.x   | ✅        |
+| 0.1.x   | ❌ (please upgrade to 0.2.x) |
 
 ## Security Design
 
@@ -36,11 +37,12 @@ This is what VaultX **does and does not** protect against:
 - **Coerced biometric**: If an adversary can physically operate your finger/face, biometric unlock opens the real vault regardless of any decoy. With a decoy configured, consider leaving biometric off
 - **Data loss**: There is NO password recovery. Forgetting your password means losing your data forever (forgetting only the decoy password is harmless — the real vault is unaffected)
 - **Factory reset / app uninstall**: This destroys all encrypted data
-- **Government-level forensic tools**: 超出无 root 应用的能力边界
+- **Government-level forensic tools**: Beyond the capability boundary of a non-root app
 
 ## Reporting a Vulnerability
 
-If you discover a security issue, please report it privately via GitHub Issues (labeled "security").
+If you discover a security issue, **do not open a public issue**. Report it privately via
+[GitHub Security Advisories](https://github.com/shiaho777/vaultx/security/advisories/new).
 We will respond within 72 hours and provide a fix before public disclosure.
 
 ## Password Recovery
@@ -53,4 +55,5 @@ We will respond within 72 hours and provide a fix before public disclosure.
 
 ## Changelog
 
+- **v0.2.0** (2026-11): Signing key rotation (leaked demo keystore revoked); 9 core correctness fixes incl. constant-time decoy unlock and ciphertext residue cleanup; native Argon2id with stronger KDF defaults; 256KB segments for new vaults; backup/device-transfer exclusion for all data; minimum password length raised to 8
 - **v0.1.0** (2026-09): Initial release with dual-mode vault, streaming AEAD encryption, portable `.vlt` format

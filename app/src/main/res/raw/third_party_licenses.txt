@@ -1,0 +1,82 @@
+THIRD-PARTY SOFTWARE NOTICES
+============================
+
+VaultX bundles the following open source components.
+Versions refer to gradle/libs.versions.toml (and pinned transitive
+dependencies). Full license texts are available at the project URLs.
+
+------------------------------------------------------------
+
+1. AndroidX / Jetpack libraries
+   Versions: core-ktx 1.17.0, activity-compose 1.13.0,
+   lifecycle 2.11.0, datastore-preferences 1.2.1,
+   biometric 1.4.0-alpha07, fragment 1.8.9,
+   exifinterface 1.4.2, core-splashscreen 1.0.1,
+   navigation3 1.1.7, compose-bom 2026.06.01
+   License: Apache License 2.0
+   https://developer.android.com/jetpack/androidx
+   https://www.apache.org/licenses/LICENSE-2.0
+
+2. Kotlin & kotlinx libraries
+   Versions: Kotlin 2.4.10, kotlinx-serialization-json 1.9.0,
+   kotlinx-coroutines 1.10.2
+   License: Apache License 2.0
+   https://kotlinlang.org/
+   https://github.com/Kotlin/kotlinx.serialization
+   https://github.com/Kotlin/kotlinx.coroutines
+
+3. Jetpack Compose Material 3 (and Material icons)
+   Version: material3 1.5.0-alpha27 (Compose BOM 2026.06.01)
+   License: Apache License 2.0
+   https://developer.android.com/jetpack/compose
+   https://www.apache.org/licenses/LICENSE-2.0
+
+4. Google Tink (tink-android)
+   Version: 1.23.0
+   License: Apache License 2.0
+   https://github.com/tink-crypto/tink-java
+   https://www.apache.org/licenses/LICENSE-2.0
+
+5. Bouncy Castle (bcprov-jdk18on)
+   Version: 1.85.2
+   License: Bouncy Castle Licence (MIT-style adaptation of the
+   MIT X11 License)
+   https://www.bouncycastle.org/licence.html
+   https://github.com/bcgit/bc-java
+
+6. libsodium (native, bundled via lazysodium-android)
+   Version: 1.0.20
+   License: ISC License
+   https://libsodium.org/
+   https://github.com/jedisct1/libsodium
+
+7. lazysodium-android
+   Version: 5.2.0
+   License: Mozilla Public License 2.0 (MPL-2.0)
+   https://github.com/terl/lazysodium-android
+   https://www.mozilla.org/en-US/MPL/2.0/
+
+8. JNA (Java Native Access, via lazysodium-android)
+   Version: 5.17.0
+   License: Dual-licensed Apache License 2.0 OR LGPL 2.1;
+   VaultX uses it under the Apache License 2.0.
+   https://github.com/java-native-access/jna
+   https://www.apache.org/licenses/LICENSE-2.0
+
+9. Coil (coil-compose, coil)
+   Version: 3.6.2
+   License: Apache License 2.0
+   https://github.com/coil-kt/coil
+   https://www.apache.org/licenses/LICENSE-2.0
+
+10. AndroidX Media3 (exoplayer, ui, common)
+    Version: 1.11.0
+    License: Apache License 2.0
+    https://github.com/androidx/media
+    https://www.apache.org/licenses/LICENSE-2.0
+
+------------------------------------------------------------
+
+Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0
+ISC License: https://opensource.org/licenses/ISC
+MPL-2.0: https://www.mozilla.org/en-US/MPL/2.0/
