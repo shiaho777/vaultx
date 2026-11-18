@@ -8,7 +8,7 @@
 [![API](https://img.shields.io/badge/API-26%2B-brightgreen.svg)](https://developer.android.com/about/versions/oreo)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4-blue.svg)](https://kotlinlang.org)
 
-*Open source · Zero permissions · Fully local · No network*
+*Open source · Zero network permissions · Fully local · No network*
 
 **[中文文档](README.zh-CN.md)**
 
@@ -52,6 +52,10 @@ VaultX is a local-only encrypted vault for Android. Images, videos, audio, arbit
 - **`.fvault` vault backup**: ciphertext-level archive export (no password needed, per-file SHA-256; streaming verification on import with progress)
 - **Master gate switch**: controls whether opening a vault requires its password (encrypts the index at rest)
 - **Emergency wipe**: destroy all vaults in one tap (type-to-confirm)
+- **Share-sheet import**: "Save to VaultX" from any app (single/multiple files; `.vlt` routed to the password queue)
+- **Lock-all Quick Settings tile** + long-press launcher shortcuts (new vault / temporary space)
+- **Password generator**: SecureRandom, adjustable length/charsets, strength meter, clipboard safety
+- **Material You**: dynamic color on by default; light/dark/system themes
 
 ### 🌀 Lock-free mode — session space
 - **Burn-on-exit**: all files are destroyed on exit or restart; import loose files or whole folders (flattened, name collisions resolved)
@@ -74,7 +78,7 @@ password ──Argon2id (memory-hard KDF)──▶ KEK
                           AES-256-GCM wrap ▼
                                         VMK (random master key)
                                           │
-              Tink Streaming AEAD (AES-256-GCM-HKDF, 4KB segments)
+              Tink Streaming AEAD (AES-256-GCM-HKDF, 256KB segments for new vaults / 4KB legacy)
                                           │
                         file encryption (seekable, stream-decrypt)
 
@@ -141,7 +145,7 @@ See [SECURITY.md](SECURITY.md) for the full, honest threat model — including w
 |-------|-----------|
 | UI | Kotlin + Jetpack Compose + Material 3 Expressive |
 | Navigation | Navigation 3 |
-| KDF | Argon2id (BouncyCastle) |
+| KDF | Argon2id (native libsodium, BouncyCastle fallback; default 64MiB/t3/p2) |
 | File encryption | Google Tink Streaming AEAD |
 | Image loading | Coil 3 (custom decrypting fetcher) |
 | Audio/Video | Media3 ExoPlayer (custom decrypting DataSource) |

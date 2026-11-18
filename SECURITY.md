@@ -10,7 +10,7 @@
 
 - **KDF**: Argon2id (memory-hard, OWASP-recommended)
 - **Key structure**: Random 256-bit VMK, wrapped by password-derived KEK via AES-256-GCM
-- **File encryption**: Google Tink Streaming AEAD (AES-256-GCM-HKDF, 4KB segments)
+- **File encryption**: Google Tink Streaming AEAD (AES-256-GCM-HKDF; 256KB segments for vaults created since 0.2.0, 4KB for legacy vaults — recorded per vault, never mixed)
 - **Password verification**: Attempting to unwrap the VMK IS the verification — no separate hash to tamper with
 - **Storage**: All data in app-private internal storage (`getFilesDir()`), invisible to other apps without root
 - **Biometric unlock (opt-in)**: The VMK is additionally wrapped by a non-exportable AES-256 key inside the Android Keystore, usable only after live biometric authentication. Deleting biometrics or a new fingerprint enrollment invalidates the Keystore key; the app then falls back to password unlock. The password always remains the root of trust
@@ -28,7 +28,7 @@ This is what VaultX **does and does not** protect against:
 - **Random access to files**: Tink AEAD chunks bind ciphertext to position, preventing reorder/append attacks
 
 ### ⚠️ Limited Protection
-- **Weak passwords**: Argon2id slows brute-force but cannot make weak passwords strong. We enforce ≥4 characters and show strength indicators
+- **Weak passwords**: Argon2id slows brute-force but cannot make weak passwords strong. We enforce ≥8 characters (since 0.2.0; legacy vaults keep their original passwords) and show strength indicators
 - **Device theft with unlocked screen**: If the device is unlocked, an attacker can access unlocked vaults in memory
 
 ### ❌ Not Protected Against

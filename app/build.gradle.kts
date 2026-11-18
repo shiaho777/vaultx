@@ -14,8 +14,8 @@ android {
         applicationId = "io.vaultx.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -26,10 +26,15 @@ android {
             if (propsFile.exists()) {
                 propsFile.inputStream().use { props.load(it) }
             }
-            storeFile = file(props.getProperty("storeFile") ?: System.getenv("VAULTX_STORE_FILE") ?: "")
-            storePassword = props.getProperty("storePassword") ?: System.getenv("VAULTX_STORE_PASSWORD")
-            keyAlias = props.getProperty("keyAlias") ?: System.getenv("VAULTX_KEY_ALIAS")
-            keyPassword = props.getProperty("keyPassword") ?: System.getenv("VAULTX_KEY_PASSWORD")
+            val storePath = props.getProperty("storeFile") ?: System.getenv("VAULTX_STORE_FILE") ?: ""
+            // 无密钥材料(CI 未配 secrets)时不挂签名配置:产出 unsigned release,
+            // 仅验证 R8/资源收缩;绝不用空路径假签名
+            if (storePath.isNotBlank() && file(storePath).exists()) {
+                storeFile = file(storePath)
+                storePassword = props.getProperty("storePassword") ?: System.getenv("VAULTX_STORE_PASSWORD")
+                keyAlias = props.getProperty("keyAlias") ?: System.getenv("VAULTX_KEY_ALIAS")
+                keyPassword = props.getProperty("keyPassword") ?: System.getenv("VAULTX_KEY_PASSWORD")
+            }
         }
     }
 
@@ -41,7 +46,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
         }
     }
 

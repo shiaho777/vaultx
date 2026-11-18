@@ -8,7 +8,7 @@
 [![API](https://img.shields.io/badge/API-26%2B-brightgreen.svg)](https://developer.android.com/about/versions/oreo)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4-blue.svg)](https://kotlinlang.org)
 
-*开源 · 零权限 · 纯本地 · 不联网*
+*开源 · 零网络权限 · 纯本地 · 不联网*
 
 **[English README](README.md)**
 
@@ -52,6 +52,10 @@ VaultX 是一个纯本地的安卓加密保险库。图片、视频、音频、�
 - **库导出备份**：导出为 `.fvault` 文件（密文搬运，免密码导出，逐文件 SHA-256 校验；导入流式校验 + 进度显示，不整段进内存）
 - **总密码开关**：控制进入库时是否需要密码
 - **紧急销毁**：一键销毁全部库（输入「销毁」二次确认）
+- **系统分享导入**：任何应用分享菜单「存入 VaultX」（单/多文件，`.vlt` 自动进密码队列）
+- **一键锁定磁贴**：下拉通知栏即锁全部库；长按图标快捷方式直达新建库/临时空间
+- **密码生成器**：SecureRandom 生成、长度/字符集可调、强度评估、安全剪贴板
+- **Material You**：动态取色默认开启，浅色/深色/跟随系统主题
 
 ### 🌀 无锁模式 — 临时空间
 - **会话即焚**：退出或重启后所有文件自动销毁；支持散文件与整文件夹导入（拍平重名自动消解）
@@ -73,7 +77,7 @@ VaultX 是一个纯本地的安卓加密保险库。图片、视频、音频、�
                                         ↓
                           AES-256-GCM 包裹 → VMK (主密钥,随机生成)
                                                 ↓
-                    Tink Streaming AEAD (AES-256-GCM-HKDF, 4KB 分块)
+                    Tink Streaming AEAD (AES-256-GCM-HKDF, 新库 256KB 分块/旧库 4KB 兼容)
                                                 ↓
                               文件加密（可随机 seek、边下边播）
 
@@ -140,7 +144,7 @@ VaultX 是一个纯本地的安卓加密保险库。图片、视频、音频、�
 |------|------|
 | UI | Kotlin + Jetpack Compose + Material 3 Expressive |
 | 导航 | Navigation 3 |
-| KDF | Argon2id (BouncyCastle) |
+| KDF | Argon2id (原生 libsodium 加速,BouncyCastle 兜底;默认 64MiB/t3/p2) |
 | 文件加密 | Google Tink Streaming AEAD |
 | 图片加载 | Coil 3 (自定义解密 Fetcher) |
 | 音视频 | Media3 ExoPlayer (自定义解密 DataSource) |

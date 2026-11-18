@@ -1,0 +1,25 @@
+VaultX is a fully offline encrypted vault for Android. Photos, videos, audio, any file — even entire folder trees — are encrypted on import and vanish from the system gallery and file manager. No account, no network permission, no root, no cloud. Everything lives in app-private storage; keys are derived from your password.
+
+ENCRYPTION THAT HOLDS UP
+• Argon2id (memory-hard KDF, native libsodium acceleration) → AES-256-GCM key wrapping → Tink Streaming AEAD file encryption
+• Random master key per vault: changing your password re-wraps the key instantly — zero re-encryption
+• New vaults use 256 KB cipher segments for fast streaming playback; old vaults keep working unchanged
+• Biometric unlock (optional): master key wrapped by a non-exportable Android Keystore key, live authentication every time
+• Decoy vault (optional): one vault, two passwords. The decoy password opens an indistinguishable empty compartment — for situations where you are forced to hand over a password
+
+BUILT FOR DAILY USE
+• Share sheet integration: "Save to VaultX" from any app (single or multiple files)
+• Quick Settings tile: lock every vault with one tap from the notification shade
+• Long-press shortcuts: new vault / temporary space
+• Built-in password generator (SecureRandom, strength meter)
+• Material You dynamic color, light/dark themes
+• Grid/list views, cross-folder search, tags, favorites, drag-to-move, undoable delete with 30-day trash
+• Encrypted thumbnails; image zoom viewer; video/audio playlist playback — plaintext never touches disk
+• .vlt portable encrypted files (one-time password) and .fvault whole-vault backup with per-file SHA-256 verification
+• Lock-free temporary space: files burn on exit
+
+HONEST SECURITY
+• No password recovery. Lost password = lost data. That is the price of real encryption.
+• No root protection claimed. Read SECURITY.md for the full threat model, including what VaultX does NOT defend against.
+• No backup exfiltration: cloud backup and device-to-device transfer are both blocked.
+• GPLv3: fully open source, auditable, forever free.
