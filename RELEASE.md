@@ -51,7 +51,7 @@ F-Droid 要求第三方能独立重建出字节一致的 APK：
 
 1. 固定依赖版本（`gradle/libs.versions.toml` 已集中管理；不要使用动态版本 `+`）。
 2. 提交 Gradle Wrapper（`gradle/wrapper/gradle-wrapper.properties` 锁定分发 URL 与校验和）。
-3. 构建环境记录：JDK 17、Android SDK compileSdk 37 / targetSdk 36。
+3. 构建环境记录：JDK 21（lazysodium 5.2.0 字节码为 Java 21）、Android SDK compileSdk 37 / targetSdk 36。
 4. 去除构建产物中的时间戳/机器路径差异（AGP 默认已处理大部分；如校验失败用 `diffoscope` 定位）。
 5. F-Droid 提交要点：
    - 元数据放 `metadata/`（Fastlane 结构：`en-US/` 与 `zh-CN/` 的 title/short_description/full_description + 截图）。

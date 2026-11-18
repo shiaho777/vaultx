@@ -8,7 +8,7 @@ Contributions of every kind are welcome: code, docs, translations, design, and b
 
 ## Development environment
 
-- **JDK 17+** (CI builds with Temurin 17)
+- **JDK 21** (CI builds with Temurin 21; lazysodium 5.2.0 ships Java-21 bytecode — on JDK 17 the native KDF path falls back to BouncyCastle, which still works but is slower)
 - **Android SDK**: platform 36 and 37 installed (`compileSdk 37`, `targetSdk 36`, `minSdk 26`)
 - Android Studio (recent stable) or `sdkmanager` CLI
 - A real device or emulator running Android 8.0+ (API 26+) for manual verification

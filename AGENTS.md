@@ -37,6 +37,7 @@ Dependency direction: `ui → core`, never `core → ui`. `core/crypto` and `cor
 
 Gotchas:
 - Gradle daemon occasionally dies mid-build (observed on this repo). If "daemon disappeared", retry the same command once before diagnosing.
+- lazysodium 5.2.0 ships Java-21 bytecode (major 65). On JDK 17 the native KDF path cannot class-load; `Argon2idKdf` catches Throwable and falls back to BouncyCastle (byte-identical output, parity test in CryptoTest). CI uses JDK 21 so the native path is actually exercised. Never let a native-init failure escape as an Error — it kills the whole KDF object initializer.
 - `keystore.properties` uses a module-relative `storeFile` path (`release.keystore`), resolved against `app/`. Absolute paths with non-ASCII characters break Properties encoding — do not reintroduce them.
 - Instrumented tests cannot run locally without a device; say so honestly, don't claim they passed.
 

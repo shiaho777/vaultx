@@ -20,9 +20,18 @@ object Argon2idKdf {
 
     const val KEY_LENGTH = 32
 
-    /** native 后端惰性初始化;失败只试一次,之后永久走 BC(避免每次解锁都撞加载异常)。 */
+    /**
+     * native 后端惰性初始化;失败只试一次,之后永久走 BC(避免每次解锁都撞加载异常)。
+     * lazysodium 5.2.0 字节码是 Java 21(major 65):JDK 17 环境(如 CI)类加载即抛
+     * UnsupportedClassVersionError——它是 Error 不是 Exception,runCatching 兜不住,
+     * 会把整个 KDF 静态初始化炸掉。必须显式 catch Throwable。
+     */
     private val native: com.goterl.lazysodium.SodiumAndroid? by lazy {
-        runCatching { com.goterl.lazysodium.SodiumAndroid() }.getOrNull()
+        try {
+            com.goterl.lazysodium.SodiumAndroid()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /**
